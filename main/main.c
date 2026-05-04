@@ -26,7 +26,11 @@ static void app_event_handler(void* handler_arg, esp_event_base_t base, int32_t 
     switch (id) {
         case EVENT_CMD_FAN:
             ESP_LOGI(TAG, "Handling EVENT_CMD_FAN %d", cook_config.SPEED);
-            V220_FAN_CON(true, cook_config.SPEED);
+            if(cook_config.SPEED > 0) {
+                V220_FAN_CON(true, cook_config.SPEED);
+            } else {
+                V220_FAN_CON(false, 0);
+            }
             break;
         case EVENT_CMD_STOP:
             ESP_LOGI(TAG, "Handling EVENT_CMD_STOP");

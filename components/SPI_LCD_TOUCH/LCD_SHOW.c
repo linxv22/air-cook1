@@ -19,14 +19,24 @@ static void btn_event_cb(lv_event_t * e)
     // 获取传递过来的 user_data，这里是刚刚传进来的字符串
     const char * btn_id = lv_event_get_user_data(e); 
     static uint8_t cnt = 0;
-
+    lv_obj_t * btn = lv_event_get_target(e);
     if(code == LV_EVENT_RELEASED) {
-        if (strcmp(btn_id, "HOT") == 0) {
-            // 处理 HOT_CON 按钮被按下的逻辑
-            
-        } else if (strcmp(btn_id, "FAN") == 0) {
+        if (strcmp(btn_id, "FAN-") == 0) {
             // 处理 FAN_CON 按钮被按下的逻辑
-            lv_obj_t * btn = lv_event_get_target(e);
+            if(cnt == 0) {
+                cnt = 100;
+            }
+            cnt -= 10;
+            
+            cook_config.SPEED = cnt; // 更新全局的风扇转速配置
+             /*Get the first child of the button which is the label and change its text*/
+            lv_obj_t * label = lv_obj_get_child(btn, 0);
+            lv_label_set_text_fmt(label, "FAN+: %d", cnt);
+            // ESP_LOGI(TAG, "FAN_CON button pressed, speed: %d", cnt);
+            esp_event_post_to(loop_handle, AIR_COOKER_EVENTS, EVENT_CMD_FAN, NULL, 0, 1000 / portTICK_PERIOD_MS); // 发送事件通知主任务风扇转速更新了
+        } else if (strcmp(btn_id, "FAN+") == 0) {
+            // 处理 FAN_CON 按钮被按下的逻辑
+            
             cnt+=10;
             if(cnt>100)
             cnt = 0;
@@ -34,7 +44,7 @@ static void btn_event_cb(lv_event_t * e)
             cook_config.SPEED = cnt; // 更新全局的风扇转速配置
              /*Get the first child of the button which is the label and change its text*/
             lv_obj_t * label = lv_obj_get_child(btn, 0);
-            lv_label_set_text_fmt(label, "FUN: %d", cnt);
+            lv_label_set_text_fmt(label, "FAN+: %d", cnt);
             // ESP_LOGI(TAG, "FAN_CON button pressed, speed: %d", cnt);
             esp_event_post_to(loop_handle, AIR_COOKER_EVENTS, EVENT_CMD_FAN, NULL, 0, 1000 / portTICK_PERIOD_MS); // 发送事件通知主任务风扇转速更新了
         }
@@ -95,7 +105,7 @@ void START_air_cook(void)
     
     /* 给 HOT_CON 按钮添加标签 */
     lv_obj_t * label_hot = lv_label_create(btn_hot);
-    lv_label_set_text(label_hot, "HOT_CON");
+    lv_label_set_text(label_hot, "FAN-:0");
     lv_obj_center(label_hot);
 
     /* 3. 创建第二个按钮：FAN_CON (居中偏右) */
@@ -105,11 +115,11 @@ void START_air_cook(void)
     
     /* 给 FAN_CON 按钮添加标签 */
     lv_obj_t * label_fan = lv_label_create(btn_fan);
-    lv_label_set_text(label_fan, "FAN:0");
+    lv_label_set_text(label_fan, "FAN+:0");
     lv_obj_center(label_fan);
 
-    lv_obj_add_event_cb(btn_hot, btn_event_cb, LV_EVENT_ALL, "HOT");
-    lv_obj_add_event_cb(btn_fan, btn_event_cb, LV_EVENT_ALL, "FAN");
+    lv_obj_add_event_cb(btn_hot, btn_event_cb, LV_EVENT_ALL, "FAN-");
+    lv_obj_add_event_cb(btn_fan, btn_event_cb, LV_EVENT_ALL, "FAN+");
 
     _lock_release(&lvgl_api_lock);
 }

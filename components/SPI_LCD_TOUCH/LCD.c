@@ -93,7 +93,6 @@ static void lvgl_port_update_callback(lv_display_t *disp)
 
 static void lvgl_flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map)
 {
-    ESP_LOGI(TAG, "Flushing LVGL display");
     lvgl_port_update_callback(disp);
     esp_lcd_panel_handle_t panel_handle = lv_display_get_user_data(disp);
     int offsetx1 = area->x1;
