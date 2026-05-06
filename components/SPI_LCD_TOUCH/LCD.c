@@ -17,6 +17,8 @@
 #include "lvgl.h"
 #include "esp_lcd_touch_xpt2046.h"
 
+#include "app_events.h"
+
 // Using SPI2 in the example
 #define LCD_HOST  SPI2_HOST
 // The pixel number in horizontal and vertical
@@ -25,14 +27,7 @@
 
 
 
-#define PIN_BK_LIGHT GPIO_NUM_2
-#define PIN_NUM_SCLK GPIO_NUM_20
-#define PIN_NUM_MOSI GPIO_NUM_18
-#define PIN_NUM_MISO GPIO_NUM_19
-#define PIN_NUM_LCD_DC GPIO_NUM_21
-#define PIN_NUM_LCD_CS GPIO_NUM_1
-#define PIN_NUM_LCD_RST GPIO_NUM_16
-#define PIN_NUM_TOUCH_CS GPIO_NUM_13
+
 #define LCD_PIXEL_CLOCK_HZ     (20 * 1000 * 1000) // 20MHz
 #define LCD_CMD_BITS          8
 #define LCD_PARAM_BITS        8
@@ -46,8 +41,6 @@
 #define LVGL_TASK_PRIORITY     2
 
 
-void START_air_cook(void);
-void example_lvgl_demo_ui();
 
 static const char *TAG = "LCD";
 
@@ -153,6 +146,7 @@ void LCD_Init(void) {
     // Initialize the LCD display
     ESP_LOGI(TAG, "Initializing LCD...");
     ESP_LOGI(TAG, "Turn off LCD backlight");
+    _lock_init(&lvgl_api_lock);
     gpio_config_t bk_gpio_config = {
         .mode = GPIO_MODE_OUTPUT,
         .pin_bit_mask = 1ULL << PIN_BK_LIGHT
@@ -272,11 +266,14 @@ void LCD_Init(void) {
     lv_indev_set_user_data(indev, tp);
     lv_indev_set_read_cb(indev, lvgl_touch_cb);
 
-    ESP_LOGI(TAG, "Create LVGL task");
-    xTaskCreate(lvgl_port_task, "LVGL", LVGL_TASK_STACK_SIZE, NULL, LVGL_TASK_PRIORITY, NULL);
-
     
-    START_air_cook();
-  
+
+    ESP_LOGI(TAG, "Create LVGL task");
+    xTaskCreate(lvgl_port_task, 
+        "LVGL", 
+        LVGL_TASK_STACK_SIZE,
+        NULL, 
+        LVGL_TASK_PRIORITY, 
+        NULL);
     ESP_LOGI(TAG, "LCD 初始化完成");
 }

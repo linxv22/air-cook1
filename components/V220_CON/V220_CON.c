@@ -6,11 +6,11 @@
 #include "freertos/task.h"
 #include "esp_timer.h"
 
+#include "app_events.h"
+
 #define TAG "V220_CON"
 
-#define HERT_CON_GPIO GPIO_NUM_5
-#define FAN_CON_GPIO GPIO_NUM_4
-#define ZERO_CROSS GPIO_NUM_3
+
 
 // ================= 全局控制变量 =================
 volatile static bool is_fan_on = false;            
@@ -139,33 +139,6 @@ void v220_con_init(void)
     ESP_LOGI(TAG, "V220_CON RMT initialized successful!");
 }
 
-// ================= 测试与接口函数 =================
-void v220_con_test(void) {
-    // 原始状态流程
-    ESP_LOGI(TAG, "状态: 风扇关闭");
-    is_fan_on = false;
-    gpio_set_level(HERT_CON_GPIO, 0); // 确保加热器关闭
-    vTaskDelay(pdMS_TO_TICKS(5000)); 
-
-    ESP_LOGI(TAG, "状态: 满速运行 (延时 1000us)");
-    delay_time_us = 1000;
-    is_fan_on = true;
-    vTaskDelay(pdMS_TO_TICKS(5000)); 
-
-    ESP_LOGI(TAG, "状态: 中速运行 (延时 5000us)");
-    delay_time_us = 5000;
-    is_fan_on = true;
-    vTaskDelay(pdMS_TO_TICKS(5000)); 
-
-    ESP_LOGI(TAG, "状态: 慢速运行 (延时 8500us)");
-    delay_time_us = 8500;
-    is_fan_on = true;
-    vTaskDelay(pdMS_TO_TICKS(10000)); 
-
-    // 结束测试
-    is_fan_on = false;
-    gpio_set_level(HERT_CON_GPIO, 0);
-}
 
 // 电热丝控制函数 
 // 参数: con: true-开，false-关
