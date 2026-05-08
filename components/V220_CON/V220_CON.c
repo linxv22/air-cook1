@@ -78,6 +78,11 @@ static void rmt_tx_task(void *arg)
     }
 }
 
+
+
+
+
+
 // ================= 3. 初始化过程 =================
 void v220_con_init(void) 
 {

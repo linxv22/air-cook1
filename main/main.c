@@ -16,18 +16,12 @@ void ui_staret(void);
 
 void app_main(void)
 {
-    // Initialize the NTC ADC
-    ntc_adc_init();
-
-    // Initialize the V220_CON component
-    v220_con_init();
-
-    // Initialize the LCD display
+    
     LCD_Init();
-
-    ui_staret();
-
     app_event_init();
+    ui_staret();
+    v220_con_init();
+    ntc_adc_init();
     
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(10000));

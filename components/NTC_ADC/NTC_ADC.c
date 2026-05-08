@@ -6,41 +6,73 @@
 #include "esp_adc/adc_continuous.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include <math.h>
 
 #include "app_events.h"
 
 static const char *TAG = "NTC_ADC";
 
 #define ADC_COUNT 16 // 设置 ADC 读取的样本数量，必须是 4 的倍数，因为每个样本占用 4 字节（包含 unit、channel、raw_data 和 valid 字段）
-
 #define ADC_READ_LEN  4*ADC_COUNT // 以字节为单位设置 ADC 读取缓冲区的大小，必须是 4 的倍数，因为每个样本占用 4 字节（包含 unit、channel、raw_data 和 valid 字段）
 
-static int result [ADC_COUNT]={0}; 
+/* NTC 参数 (请根据你的实际硬件原理图修改这些值) */
+#define NTC_R25 100000.0f      // NTC在25度时的典型阻值，默认写空气炸锅常用的100K
+#define NTC_BETA 3950.0f       // NTC的B值
+#define PULLDOWN_R 2000.0f // 串联的上拉（或下拉）分压电阻阻值，2k
+#define V_REF 3300.0f          // 3.3V供电即3300mV
 
+static int result = 0; 
 static adc_continuous_handle_t handle = NULL;
 static adc_cali_handle_t cali_handle = NULL; 
+static volatile float current_temperature = 0.0; // 缓存出来的当前最平稳的温度值
+
+/* 根据测得的毫伏电压计算当前温度 */
+static float convert_voltage_to_temp(int voltage_mv) {
+    if (voltage_mv <= 0) return -273.15f;           // 避免除零或 ADC 异常底层返回负值
+    if (voltage_mv >= V_REF - 10) return 999.0f;    // NTC 短路时，电压会接近 3.3V
+
+    // 电路拓扑: 3.3V -> NTC -> [ADC测量点] -> 2K下拉电阻 -> GND
+    // 公式: V_out = V_Ref * (PULLDOWN_R) / (R_ntc + PULLDOWN_R)
+    float r_ntc = ((V_REF - voltage_mv) * PULLDOWN_R) / voltage_mv;
+    
+    // 使用标准的Steinhart-Hart方程的B参数简化版: 1/T = 1/T0 + (1/B)*ln(R/R0)
+    float temp_k = 1.0f / (1.0f / 298.15f + (1.0f / NTC_BETA) * log(r_ntc / NTC_R25));
+    
+    return temp_k - 273.15f;  // 转为摄氏度
+}
 
 void ntc_adc_task(void *arg) 
 {
   adc_continuous_data_t parsed_data[ADC_COUNT];  // 用户指定最大样本数
+
   while(1)
   {
    uint32_t num_samples = 0;
+   uint32_t sum_mv = 0;
+   uint32_t valid_count = 0;
    esp_err_t ret = adc_continuous_read_parse(handle, parsed_data, ADC_COUNT , &num_samples, 1000);
    if (ret == ESP_OK) {
+      
       for (int i = 0; i < num_samples ; i++) {
-         if (parsed_data[i].valid) {
-              ESP_LOGI(TAG, "ADC%d, Channel: %d, Value: %"PRIu32,
-                     parsed_data[i].unit + 1,
-                     parsed_data[i].channel,
-                     parsed_data[i].raw_data);
-              adc_cali_raw_to_voltage(cali_handle, parsed_data[i].raw_data,&result[i]);  
-              ESP_LOGI(TAG, "Voltage: %d mV", result[i]);
+         if (parsed_data[i].valid) { 
+              adc_cali_raw_to_voltage(cali_handle, parsed_data[i].raw_data, &result);  
+              sum_mv += result;
+              valid_count++;
         }
-         
+      }
+      
+      // 取平均值，滤除大功率电器造成的毛刺
+      if (valid_count > 0) {
+          int avg_mv = sum_mv / valid_count;
+          current_temperature = convert_voltage_to_temp(avg_mv);
+          // 调试时可以打开打印，生产环境建议关闭减小CPU占用
+          // ESP_LOGI(TAG, "Avg Vol: %d mV, Temp: %.1f C", avg_mv, current_temperature);
+      }
     }
-}
-    vTaskDelay(pdMS_TO_TICKS(5000));
+
+    esp_event_post_to(loop_handle, AIR_COOKER_EVENTS, EVENT_TEMP_UPDATED, NULL, 0, 100 / portTICK_PERIOD_MS); // 发送事件通知主任务风扇转速更新了
+    // 500ms读取一次，符合空气炸锅等大热惯性设备的高效检测周期
+    vTaskDelay(pdMS_TO_TICKS(1000));
   }
 }
 
@@ -95,7 +127,6 @@ ESP_ERROR_CHECK(adc_cali_create_scheme_curve_fitting(&cali_config, &cali_handle)
 }
 
 float ntc_adc_read_temperature(void) {
-    // Read the ADC value and convert it to temperature
-    ;
-    return 0.0; // Placeholder return value
+    // 返回最近一次ADC任务在后台计算出的稳定温度值
+    return current_temperature;
 }

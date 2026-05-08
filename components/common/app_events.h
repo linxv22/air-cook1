@@ -35,3 +35,4 @@ typedef struct {
     uint32_t time_mins;
 } cook_config_t;
 
+extern esp_event_loop_handle_t loop_handle;

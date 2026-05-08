@@ -24,11 +24,12 @@ bool is_HOT_ON = false;
 lv_obj_t * label_hot;
 lv_obj_t * label_fan;
 lv_obj_t * Tem_label;
+lv_obj_t * label_test_hot;
 
 void app_event_handler(void* handler_arg, esp_event_base_t base, int32_t id, void* event_data)
 {
 
-    ESP_LOGI(TAG, "Received event: base=%s, id=%d", base, id);
+    // ESP_LOGI(TAG, "Received event: base=%s, id=%d", base, id);
     switch (id) {
         case EVENT_CMD_FAN:
             ESP_LOGI(TAG, "Handling EVENT_CMD_FAN %d", cook_config.SPEED);
@@ -47,8 +48,26 @@ void app_event_handler(void* handler_arg, esp_event_base_t base, int32_t id, voi
             break;
         case EVENT_CMD_HOT:
             ESP_LOGI(TAG, "Handling EVENT_CMD_HOT");
-            // is_HOT_ON = !is_HOT_ON;
+            is_HOT_ON = !is_HOT_ON;
             // V220_HOT_CON(is_HOT_ON);
+            if(is_HOT_ON)
+            {
+                _lock_acquire(&lvgl_api_lock);
+                lv_label_set_text(label_test_hot, "HOT ON");
+                _lock_release(&lvgl_api_lock);
+            }
+             else
+            {
+                _lock_acquire(&lvgl_api_lock);
+                lv_label_set_text(label_test_hot, "HOT OFF");
+                _lock_release(&lvgl_api_lock);
+            }
+            break;
+        case EVENT_TEMP_UPDATED:
+            // ESP_LOGI(TAG, "Handling EVENT_TEMP_UPDATED: %.1f C", cook
+            _lock_acquire(&lvgl_api_lock);
+            lv_label_set_text_fmt(Tem_label, "Tem: %.1f °C", ntc_adc_read_temperature());
+            _lock_release(&lvgl_api_lock);
             break;
     }
 
@@ -159,14 +178,16 @@ void ui_staret(void)
     lv_obj_add_event_cb(btn_fan, btn_event_cb, LV_EVENT_ALL, "FAN+");
 
     Tem_label = lv_label_create(lv_screen_active());
-    lv_label_set_text_fmt(Tem_label, "Tem: %.1f °C",cook_config.temperature);
-    ESP_LOGI(TAG, "Initial temperature: %.1f °C", cook_config.temperature);
+    lv_label_set_text_fmt(Tem_label, "Tem: %.1f °C",25.0f);
+    // ESP_LOGI(TAG, "Initial temperature: %.1f °C", cook_config.temperature);
     lv_obj_align(Tem_label, LV_ALIGN_LEFT_MID, 0, -100); /* 底部居中，向上偏移 20 */
 
-    lv_obj_t * test_hot = lv_button_create(lv_screen_active());
+    lv_obj_t * test_hot= lv_button_create(lv_screen_active());
     lv_obj_set_size(test_hot, 100, 50);
     lv_obj_align(test_hot, LV_ALIGN_CENTER, -60, 40); /* X 轴向左偏移 70 */
-    lv_label_set_text(lv_label_create(test_hot), "TEST HOT");
+    label_test_hot = lv_label_create(test_hot);
+    lv_label_set_text(label_test_hot, "HOT OFF");
+    lv_obj_center(label_test_hot);
     lv_obj_add_event_cb(test_hot, btn_event_cb, LV_EVENT_ALL, "TEST HOT");
 
     _lock_release(&lvgl_api_lock);
