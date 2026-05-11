@@ -13,7 +13,7 @@
 static const char *TAG = "main";
     
 void app_event_init (void);
-void ui_staret(void);
+void ui_start(void);
 
 void app_main(void)
 {
@@ -28,7 +28,7 @@ void app_main(void)
     
     LCD_Init();
     app_event_init();
-    ui_staret();
+    ui_start();
     v220_con_init();
     ntc_adc_init();
     // wifi_init();

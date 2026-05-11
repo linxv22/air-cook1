@@ -13,182 +13,193 @@ extern _lock_t lvgl_api_lock;
 esp_event_loop_handle_t loop_handle;
 ESP_EVENT_DEFINE_BASE(AIR_COOKER_EVENTS);
 
-cook_config_t cook_config = {
-    .temperature = 25.0, // 目标温度，单位摄氏度
-    .SPEED = 0,        // 风扇转速，范围 0-100
-    .time_mins = 0     // 烹饪时间，单位分钟
-};
+// ============ UI 局部状态缓存 ============ 
+static int ui_target_temp = 180;
+static int ui_target_time_min = 20;
+static int ui_fan_speed = 80;
 
-bool is_HOT_ON = false;
-
-lv_obj_t * label_hot;
-lv_obj_t * label_fan;
+// ============ UI 控件句柄 ============ 
 lv_obj_t * Tem_label;
-lv_obj_t * label_test_hot;
+lv_obj_t * Remain_time_label;
+lv_obj_t * label_set_temp;
+lv_obj_t * label_set_time;
+lv_obj_t * label_set_fan;
+lv_timer_t * ui_timer = NULL;
 
+
+
+// ================= 事件中枢 (统一处理底层控制逻辑) =================
 void app_event_handler(void* handler_arg, esp_event_base_t base, int32_t id, void* event_data)
 {
-
-    // ESP_LOGI(TAG, "Received event: base=%s, id=%d", base, id);
     switch (id) {
-        case EVENT_CMD_FAN:
-            ESP_LOGI(TAG, "Handling EVENT_CMD_FAN %d", cook_config.SPEED);
-            if(cook_config.SPEED > 0) {
-                V220_FAN_CON(true, cook_config.SPEED);
-            } else {
-                V220_FAN_CON(false, 0);
-            }
-            if (label_hot != NULL && label_fan != NULL) {
-                _lock_acquire(&lvgl_api_lock);
-                // 使用 lv_label_set_text_fmt 动态格式化数字
-                lv_label_set_text_fmt(label_hot, "FAN-:%d", (int)cook_config.SPEED);
-                lv_label_set_text_fmt(label_fan, "FAN+:%d", (int)cook_config.SPEED);
-                _lock_release(&lvgl_api_lock);
-            }
+        case EVENT_CMD_aircook: {
+            // 接到开机指令，解包出温度和时间并下发给底层状态机
+            cook_config_t *cfg = (cook_config_t *)event_data;
+            aircook_set_speed(ui_fan_speed);
+            aircook_start(cfg);
+            ESP_LOGI(TAG, "Logic: Cook Started! Temp: %.1f C, Time: %ld s", cfg->temperature, cfg->time_s);
             break;
-        case EVENT_CMD_HOT:
-            ESP_LOGI(TAG, "Handling EVENT_CMD_HOT");
-            is_HOT_ON = !is_HOT_ON;
-            V220_HOT_CON(is_HOT_ON);
-            if(is_HOT_ON)
-            {
-                _lock_acquire(&lvgl_api_lock);
-                lv_label_set_text(label_test_hot, "HOT ON");
-                _lock_release(&lvgl_api_lock);
-            }
-             else
-            {
-                _lock_acquire(&lvgl_api_lock);
-                lv_label_set_text(label_test_hot, "HOT OFF");
-                _lock_release(&lvgl_api_lock);
-            }
+        }
+        case EVENT_CMD_STOP: {
+            aircook_stop();
+            ESP_LOGI(TAG, "Logic: Cook Stopped!");
             break;
-        case EVENT_TEMP_UPDATED:
-            // ESP_LOGI(TAG, "Handling EVENT_TEMP_UPDATED: %.1f C", cook
+        }
+        case EVENT_CMD_FAN_SPEED: {
+            uint32_t speed = *(uint32_t *)event_data;
+            aircook_set_speed(speed);
+            ESP_LOGI(TAG, "Logic: Fan speed updated to %ld%%", speed);
+            break;
+        }
+        case EVENT_TEMP_UPDATED: {
             _lock_acquire(&lvgl_api_lock);
-            lv_label_set_text_fmt(Tem_label, "Tem: %.1f °C", ntc_adc_read_temperature());
+            float current_temp = ntc_adc_read_temperature();
+            lv_label_set_text_fmt(Tem_label, "Cur Tem: %.1f °C", current_temp);
+            uint32_t remain_s = aircook_gettime(); 
+            if(remain_s > 0) {
+                lv_label_set_text_fmt(Remain_time_label, "Remain: %02ld:%02ld", remain_s / 60, remain_s % 60);
+         } 
+            else {
+                lv_label_set_text(Remain_time_label, "Remain: 00:00");
+            }
             _lock_release(&lvgl_api_lock);
             break;
+        }
     }
-
 }
-
-
 
 void app_event_init (void)
 {
-
-    // 2. 定义事件循环参数。此处创建了一个专门的事件循环任务来处理事件，队列大小为 5，任务优先级为 5，栈大小为 4096 字节。
     esp_event_loop_args_t loop_args = {
         .queue_size = 10,
-        .task_name = "my_event_task", // task will be created
+        .task_name = "my_event_task", 
         .task_priority = 5,
         .task_stack_size = 4096,
         .task_core_id = tskNO_AFFINITY
     };
 
-    // Create the event loops
     ESP_ERROR_CHECK(esp_event_loop_create(&loop_args, &loop_handle));
-
-    // 使用刚才得到的句柄（air_cooker_loop_handle），注册我们的事件监听器
     ESP_ERROR_CHECK(esp_event_handler_register_with(
-        loop_handle, // 指向你要监听的特定循环基底
-        AIR_COOKER_EVENTS,      // 从 app_events.h 里约定的暗号（基底）
-        ESP_EVENT_ANY_ID,       // 监听此基底下的所有 ID
-        app_event_handler,      // 执行的回调函数
-        NULL                    // 不传递额外参数
-    ));
-
-
+    loop_handle, AIR_COOKER_EVENTS, ESP_EVENT_ANY_ID, app_event_handler, NULL));
 }
 
+// ================= UI 与 按键回调 =================
 
-
+// 按键点击回调: 纯页面计算 + 投递事件。彻底和硬件解耦！
 static void btn_event_cb(lv_event_t * e)
 {
     lv_event_code_t code = lv_event_get_code(e);
-    // ESP_LOGI(TAG, "Button event code: %d", code);
-    // 获取传递过来的 user_data，这里是刚刚传进来的字符串
-    const char * btn_id = lv_event_get_user_data(e); 
-    if(code == LV_EVENT_RELEASED) {
-        if (strcmp(btn_id, "FAN-") == 0) {
-            
-            if (cook_config.SPEED == 0) {
-                cook_config.SPEED = 100;
-            }
+    const char * btn_id = (const char *)lv_event_get_user_data(e); 
+    
+    if(code == LV_EVENT_CLICKED) { // 建议用 CLICKED，体验更好
+        
+        if (strcmp(btn_id, "TEMP-") == 0) {
+            if(ui_target_temp > 40) ui_target_temp -= 5;
+            lv_label_set_text_fmt(label_set_temp, "%d °C", ui_target_temp);
 
-            cook_config.SPEED--; // 更新全局的风扇转速配置
-             /*Get the first child of the button which is the label and change its text*/
-            // ESP_LOGI(TAG, "FAN_CON button pressed, speed: %d", cnt);
-            esp_event_post_to(loop_handle, AIR_COOKER_EVENTS, EVENT_CMD_FAN, NULL, 0, 1000 / portTICK_PERIOD_MS); // 发送事件通知主任务风扇转速更新了
+        } else if (strcmp(btn_id, "TEMP+") == 0) {
+            if(ui_target_temp < 220) ui_target_temp += 5;
+            lv_label_set_text_fmt(label_set_temp, "%d °C", ui_target_temp);
+
+        } else if (strcmp(btn_id, "TIME-") == 0) {
+            if(ui_target_time_min > 1) ui_target_time_min -= 1;
+            lv_label_set_text_fmt(label_set_time, "%d min", ui_target_time_min);
+
+        } else if (strcmp(btn_id, "TIME+") == 0) {
+            if(ui_target_time_min < 60) ui_target_time_min += 1;
+            lv_label_set_text_fmt(label_set_time, "%d min", ui_target_time_min);
+
+        } else if (strcmp(btn_id, "FAN-") == 0) {
+            if(ui_fan_speed > 20) ui_fan_speed -= 10;
+            lv_label_set_text_fmt(label_set_fan, "Fan: %d%%", ui_fan_speed);
+            // 实时调风扇，投递消息给控制层
+            esp_event_post_to(loop_handle, AIR_COOKER_EVENTS, EVENT_CMD_FAN_SPEED, &ui_fan_speed, sizeof(ui_fan_speed), 0);
+
         } else if (strcmp(btn_id, "FAN+") == 0) {
-            // 处理 FAN_CON 按钮被按下的逻辑
-            cook_config.SPEED++; // 更新全局的风扇转速配置
-            if (cook_config.SPEED >=100) {
-                cook_config.SPEED = 0;
-            }
-             /*Get the first child of the button which is the label and change its text*/
-            esp_event_post_to(loop_handle, AIR_COOKER_EVENTS, EVENT_CMD_FAN, NULL, 0, 1000 / portTICK_PERIOD_MS); // 发送事件通知主任务风扇转速更新了
+            if(ui_fan_speed < 100) ui_fan_speed += 10;
+            lv_label_set_text_fmt(label_set_fan, "Fan: %d%%", ui_fan_speed);
+            esp_event_post_to(loop_handle, AIR_COOKER_EVENTS, EVENT_CMD_FAN_SPEED, &ui_fan_speed, sizeof(ui_fan_speed), 0);
 
-        } else if (strcmp(btn_id, "TEST HOT") == 0) {
-           esp_event_post_to(loop_handle, AIR_COOKER_EVENTS, EVENT_CMD_HOT, NULL, 0, 1000 / portTICK_PERIOD_MS); // 发送事件通知主任务风扇转速更新了
-             /*Get the first child of the button which is the label and change its text*/   
+        } else if (strcmp(btn_id, "START") == 0) {
+            // 打包数据，发给中枢执行
+            cook_config_t cfg = {
+                .temperature = (float)ui_target_temp,
+                .time_s = (uint32_t)(ui_target_time_min * 60)
+            };
+            esp_event_post_to(loop_handle, AIR_COOKER_EVENTS, EVENT_CMD_aircook, &cfg, sizeof(cfg), 0);
+
+        } else if (strcmp(btn_id, "STOP") == 0) {
+            esp_event_post_to(loop_handle, AIR_COOKER_EVENTS, EVENT_CMD_STOP, NULL, 0, 0);
         }
     }
-
 }
 
-
-void ui_staret(void)
+// 辅助创建按钮包装器
+static lv_obj_t * create_ui_btn(lv_obj_t * parent, const char * txt, int x, int y, const char * btn_id)
 {
-     _lock_acquire(&lvgl_api_lock);
+    lv_obj_t * btn = lv_button_create(parent); // 注意：LVGL v8 用 lv_btn_create 
+    lv_obj_t * label = lv_label_create(btn);
+    lv_label_set_text(label, txt);
+    lv_obj_center(label);
+    
+    // 设置位置和点击事件
+    lv_obj_align(btn, LV_ALIGN_CENTER, x, y);
+    lv_obj_add_event_cb(btn, btn_event_cb, LV_EVENT_CLICKED, (void *)btn_id);
+    return btn;
+}
 
-    /* 1. 创建顶部大字标题：AIR cook */
-    lv_obj_t * title_label = lv_label_create(lv_screen_active());
+void ui_start(void)
+{
+    _lock_acquire(&lvgl_api_lock);
+    lv_obj_t * scr = lv_screen_active();
+
+    /* 顶部标题区 */
+    lv_obj_t * title_label = lv_label_create(scr);
     lv_label_set_text(title_label, "AIR cook");
-    
-    /* 设置较大的内置字体。注意：请确保 lv_conf.h 中已经启用了所选的字体，如 LV_FONT_MONTSERRAT_24 */
     lv_obj_set_style_text_font(title_label, &lv_font_montserrat_24, 0); 
-    
-    /* 顶部居齐，向下偏移 40 像素 */
     lv_obj_align(title_label, LV_ALIGN_TOP_MID, 0, 0); 
 
+    /* 状态显示区 */
+    Tem_label = lv_label_create(scr);
+    lv_label_set_text(Tem_label, "Cur Tem: 25.0 °C");
+    lv_obj_align(Tem_label, LV_ALIGN_TOP_LEFT, 10, 35); 
 
-    /* 2. 创建第一个按钮：HOT_CON (居中偏左) */
-    lv_obj_t * btn_hot = lv_button_create(lv_screen_active());
-    lv_obj_set_size(btn_hot, 100, 50);
-    lv_obj_align(btn_hot, LV_ALIGN_CENTER, -60, -40); /* X 轴向左偏移 70 */
+    Remain_time_label = lv_label_create(scr);
+    lv_label_set_text(Remain_time_label, "Remain: 00:00");
+    lv_obj_align(Remain_time_label, LV_ALIGN_TOP_RIGHT, -10, 35);
+
+    /* 参数调控区 (y 轴通过像素偏移) */
     
-    /* 给 HOT_CON 按钮添加标签 */
-    label_hot = lv_label_create(btn_hot);
-    lv_label_set_text(label_hot, "FAN-:0");
-    lv_obj_center(label_hot);
+    // 1. 设置温度
+    create_ui_btn(scr, "-", -70, -50, "TEMP-");
+    label_set_temp = lv_label_create(scr);
+    lv_label_set_text_fmt(label_set_temp, "%d °C", ui_target_temp);
+    lv_obj_align(label_set_temp, LV_ALIGN_CENTER, 0, -50);
+    create_ui_btn(scr, "+", 70, -50, "TEMP+");
 
-    /* 3. 创建第二个按钮：FAN_CON (居中偏右) */
-    lv_obj_t * btn_fan = lv_button_create(lv_screen_active());
-    lv_obj_set_size(btn_fan, 100, 50);
-    lv_obj_align(btn_fan, LV_ALIGN_CENTER, 60, -40);  /* X 轴向右偏移 70 */
-    
-    /* 给 FAN_CON 按钮添加标签 */
-    label_fan = lv_label_create(btn_fan);
-    lv_label_set_text(label_fan, "FAN+:0");
-    lv_obj_center(label_fan);
+    // 2. 设置时间
+    create_ui_btn(scr, "-", -70, 0, "TIME-");
+    label_set_time = lv_label_create(scr);
+    lv_label_set_text_fmt(label_set_time, "%d min", ui_target_time_min);
+    lv_obj_align(label_set_time, LV_ALIGN_CENTER, 0, 0);
+    create_ui_btn(scr, "+", 70, 0, "TIME+");
 
-    lv_obj_add_event_cb(btn_hot, btn_event_cb, LV_EVENT_ALL, "FAN-");
-    lv_obj_add_event_cb(btn_fan, btn_event_cb, LV_EVENT_ALL, "FAN+");
+    // 3. 设置风扇
+    create_ui_btn(scr, "-", -70, 50, "FAN-");
+    label_set_fan = lv_label_create(scr);
+    lv_label_set_text_fmt(label_set_fan, "Fan: %d%%", ui_fan_speed);
+    lv_obj_align(label_set_fan, LV_ALIGN_CENTER, 0, 50);
+    create_ui_btn(scr, "+", 70, 50, "FAN+");
 
-    Tem_label = lv_label_create(lv_screen_active());
-    lv_label_set_text_fmt(Tem_label, "Tem: %.1f °C",25.0f);
-    // ESP_LOGI(TAG, "Initial temperature: %.1f °C", cook_config.temperature);
-    lv_obj_align(Tem_label, LV_ALIGN_LEFT_MID, 0, -100); /* 底部居中，向上偏移 20 */
+    /* 底部操作区 */
+    lv_obj_t* btn_start = create_ui_btn(scr, "START", -50, 100, "START");
 
-    lv_obj_t * test_hot= lv_button_create(lv_screen_active());
-    lv_obj_set_size(test_hot, 100, 50);
-    lv_obj_align(test_hot, LV_ALIGN_CENTER, -60, 40); /* X 轴向左偏移 70 */
-    label_test_hot = lv_label_create(test_hot);
-    lv_label_set_text(label_test_hot, "HOT OFF");
-    lv_obj_center(label_test_hot);
-    lv_obj_add_event_cb(test_hot, btn_event_cb, LV_EVENT_ALL, "TEST HOT");
+    //(绿色: #187600)
+    lv_obj_set_style_bg_color(btn_start, lv_color_hex(0x187600), 0); 
+
+    lv_obj_t* btn_stop = create_ui_btn(scr, "STOP", 50, 100, "STOP");
+    //(红色: #ff0000)
+    lv_obj_set_style_bg_color(btn_stop, lv_color_hex(0xFF0000), 0);  
 
     _lock_release(&lvgl_api_lock);
 }

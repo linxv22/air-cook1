@@ -7,7 +7,7 @@
 #include "esp_timer.h"
 #include "NTC_ADC.h"
 
-#include "app_events.h"
+
 
 #define TAG "V220_CON"
 
@@ -24,8 +24,8 @@ static TaskHandle_t rmt_tx_task_handle = NULL;
 static run_config_t current_config = {0}; // 当前烹饪配置
 
 //函数声明
-void V220_HOT_CON(bool con);
-void V220_FAN_CON(bool con ,uint32_t speed);
+static void V220_HOT_CON(bool con);
+static void V220_FAN_CON(bool con ,uint32_t speed);
 
 // ================= 1. ISR 过零中断 =================
 static void IRAM_ATTR zcd_isr_handler(void* arg)
@@ -85,31 +85,21 @@ static void rmt_tx_task(void *arg)
     }
 }
 
-
+//空气炸锅底层控制中枢
 static void cook_control(void *arg)
 {
-    int64_t  last_time = 0;
-    int64_t  now_time = 0;
-
+    //空气炸锅散热时间
     uint32_t post_cook_cooling_s = 0;
-
+     // xLastWakeTime 记录上次唤醒的精确 Tick
+    TickType_t xLastWakeTime = xTaskGetTickCount();
     float current_temp = 0.0f;
-    while (1){
 
-    now_time = esp_timer_get_time();
-    if(current_config.state == cook_running && current_config.time_s > 0) {
-        if (now_time - last_time >= 1 * 1000 * 1000) { // 每秒更新一次剩余时间
-            current_config.time_s--;
-            last_time = now_time;
-        }
-    }
-    else if (current_config.time_s <= 0 && current_config.state == cook_running )
-    {
-        current_config.state = cook_run_stop;
-        post_cook_cooling_s = 60;
-    }
+     // 专门为继电器准备的保护变量
+    uint32_t relay_lock_sec = 0; // 继电器动作锁定倒计时(秒)
+    bool target_relay_state = false; // 记录继电器当前的目标状态
+    while (1){    
     current_temp = ntc_adc_read_temperature();
-    if(current_temp >=900.0f )
+    if(current_temp >=300.0f || current_temp <= -20.0f)
     current_config.state = cook_error;
     switch (current_config.state)
     {
@@ -118,25 +108,61 @@ static void cook_control(void *arg)
             V220_FAN_CON(false, 0);
             break;
         case cook_running:
-            V220_HOT_CON(true);
-            V220_FAN_CON(true, current_config.SPEED);
+            if (current_config.time_s > 0)
+            {
+                current_config.time_s--;
+            }
+            if (current_config.time_s == 0)
+            {
+                current_config.state = cook_cooling_down;
+                post_cook_cooling_s = 30;
+            }
+            if (relay_lock_sec > 0) {
+                    relay_lock_sec--; // 死区锁定中，不改变继电器状态
+                } else {
+                    float temp_diff = current_config.temperature - current_temp;
+
+                    if (temp_diff > 30.0f) {
+                        // 阶段1【全速升温】：距离目标大于30度，必须吸合加热
+                        if (target_relay_state == false) {
+                            target_relay_state = true;
+                            relay_lock_sec = 20; // 吸合至少保持20秒 (保护触点)
+                        }
+                    } 
+                    else if (temp_diff <= 10.0f ) {
+                        // 阶段2【惯性防冲/越界断开】：距离目标还有2度就提前断开，防止余温把锅冲爆
+                        if (target_relay_state == true) {
+                            target_relay_state = false;
+                            relay_lock_sec = 30; // 断开后至少需要等30秒才能再次吸合
+                        }
+                    } 
+                    else if (temp_diff > 10.0f && temp_diff <= 30.0f) {
+                        // 阶段3【恒温补偿】：温度跌下来，差了10度以上，启动缓慢补温
+                        if (target_relay_state == false) {
+                            target_relay_state = true;
+                            relay_lock_sec = 10;  // 补气只要短时间吸合即可
+                        }
+                    }
+                }
+                // 执行动作
+                V220_HOT_CON(target_relay_state);
+                V220_FAN_CON(true, current_config.SPEED);
             break;
         case cook_paused:
             V220_HOT_CON(false);
-            V220_FAN_CON(true, 80); // 暂停时保持风扇高速运转，帮助散热
-             break;
+            V220_FAN_CON(true, current_config.SPEED); // 暂停时保持风扇高速运转，帮助散热
             break;
-        case cook_run_stop:
-        if (now_time - last_time >= 1 * 1000 * 1000 && post_cook_cooling_s > 0) { // 每秒更新一次剩余时间
-            post_cook_cooling_s--;
-            last_time = now_time ;
-        }
-        else if (post_cook_cooling_s == 0)
-        {
-            current_config.state = cook_stopped;
-        }
+        case cook_cooling_down:
+            if (post_cook_cooling_s > 0) 
+            { // 每秒更新一次剩余时间
+                post_cook_cooling_s--;
+            }
+            else if (post_cook_cooling_s == 0)
+            {
+                current_config.state = cook_stopped;
+            }
             V220_HOT_CON(false);
-            V220_FAN_CON(true, 80);
+            V220_FAN_CON(true, current_config.SPEED);
             break;
         case cook_error:
             V220_HOT_CON(false);
@@ -145,10 +171,9 @@ static void cook_control(void *arg)
         default:
             break;
     }
-    vTaskDelay(pdMS_TO_TICKS(1000));
+    xTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(1000));
    }
 }
-
 
 // ================= 3. 初始化过程 =================
 void v220_con_init(void) 
@@ -208,22 +233,49 @@ void v220_con_init(void)
     }
     gpio_isr_handler_add(ZERO_CROSS, zcd_isr_handler, NULL);
     gpio_intr_disable(ZERO_CROSS); // 初始化时先默认关闭硬件中断
-    ESP_LOGI(TAG, "V220_CON RMT initialized successful!");
+    xTaskCreatePinnedToCore(
+        cook_control, 
+        "cook_control", 
+        2048, 
+        NULL, 
+        10, 
+        NULL, 
+        1 // 挂在 Core 1，分离网络带来的干扰
+    );
+    ESP_LOGI(TAG, "initialized successful!");
 }
 
 void aircook_start(cook_config_t *config)
 {
     current_config.time_s = config->time_s; // 更新全局配置
     current_config.temperature = config->temperature;
-
-
-
+    current_config.SPEED = 80;
     current_config.state = cook_running;
+}
+
+void aircook_set_tem(float tem)
+{
+    current_config.temperature = tem;
+}
+
+void aircook_set_speed(uint32_t speed)
+{
+    current_config.SPEED = speed;
+}
+
+void aircook_stop(void)
+{
+    current_config.state = cook_stopped;
+}
+
+uint32_t aircook_gettime(void)
+{
+    return current_config.time_s;
 }
 
 // 电热丝控制函数 
 // 参数: con: true-开，false-关
-void V220_HOT_CON(bool con)
+static void V220_HOT_CON(bool con)
 {
     if(con == true) {
         gpio_set_level(HERT_CON_GPIO, 1);
@@ -234,7 +286,7 @@ void V220_HOT_CON(bool con)
 
 // 风扇控制函数
 // 参数: con: true-开，false-关 speed：0-100，表示风扇转速百分比
-void V220_FAN_CON(bool con, uint32_t speed)
+static void V220_FAN_CON(bool con, uint32_t speed)
 {
     if(con == true) {
         if (speed > 100) speed = 100; // 限制 speed 在 0-100 范围内
