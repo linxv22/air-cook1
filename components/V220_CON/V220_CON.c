@@ -5,6 +5,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_timer.h"
+#include "NTC_ADC.h"
 
 #include "app_events.h"
 
@@ -19,6 +20,12 @@ volatile static uint32_t delay_time_us = 1000;     // 控制转速，范围 0-99
 static rmt_channel_handle_t rmt_tx_chan = NULL;
 static rmt_encoder_handle_t rmt_copy_encoder = NULL;
 static TaskHandle_t rmt_tx_task_handle = NULL;
+
+static run_config_t current_config = {0}; // 当前烹饪配置
+
+//函数声明
+void V220_HOT_CON(bool con);
+void V220_FAN_CON(bool con ,uint32_t speed);
 
 // ================= 1. ISR 过零中断 =================
 static void IRAM_ATTR zcd_isr_handler(void* arg)
@@ -79,8 +86,68 @@ static void rmt_tx_task(void *arg)
 }
 
 
+static void cook_control(void *arg)
+{
+    int64_t  last_time = 0;
+    int64_t  now_time = 0;
 
+    uint32_t post_cook_cooling_s = 0;
 
+    float current_temp = 0.0f;
+    while (1){
+
+    now_time = esp_timer_get_time();
+    if(current_config.state == cook_running && current_config.time_s > 0) {
+        if (now_time - last_time >= 1 * 1000 * 1000) { // 每秒更新一次剩余时间
+            current_config.time_s--;
+            last_time = now_time;
+        }
+    }
+    else if (current_config.time_s <= 0 && current_config.state == cook_running )
+    {
+        current_config.state = cook_run_stop;
+        post_cook_cooling_s = 60;
+    }
+    current_temp = ntc_adc_read_temperature();
+    if(current_temp >=900.0f )
+    current_config.state = cook_error;
+    switch (current_config.state)
+    {
+        case cook_stopped:
+            V220_HOT_CON(false);
+            V220_FAN_CON(false, 0);
+            break;
+        case cook_running:
+            V220_HOT_CON(true);
+            V220_FAN_CON(true, current_config.SPEED);
+            break;
+        case cook_paused:
+            V220_HOT_CON(false);
+            V220_FAN_CON(true, 80); // 暂停时保持风扇高速运转，帮助散热
+             break;
+            break;
+        case cook_run_stop:
+        if (now_time - last_time >= 1 * 1000 * 1000 && post_cook_cooling_s > 0) { // 每秒更新一次剩余时间
+            post_cook_cooling_s--;
+            last_time = now_time ;
+        }
+        else if (post_cook_cooling_s == 0)
+        {
+            current_config.state = cook_stopped;
+        }
+            V220_HOT_CON(false);
+            V220_FAN_CON(true, 80);
+            break;
+        case cook_error:
+            V220_HOT_CON(false);
+            V220_FAN_CON(false, 0);
+            break;
+        default:
+            break;
+    }
+    vTaskDelay(pdMS_TO_TICKS(1000));
+   }
+}
 
 
 // ================= 3. 初始化过程 =================
@@ -144,6 +211,15 @@ void v220_con_init(void)
     ESP_LOGI(TAG, "V220_CON RMT initialized successful!");
 }
 
+void aircook_start(cook_config_t *config)
+{
+    current_config.time_s = config->time_s; // 更新全局配置
+    current_config.temperature = config->temperature;
+
+
+
+    current_config.state = cook_running;
+}
 
 // 电热丝控制函数 
 // 参数: con: true-开，false-关

@@ -71,7 +71,7 @@ void ntc_adc_task(void *arg)
     }
 
     esp_event_post_to(loop_handle, AIR_COOKER_EVENTS, EVENT_TEMP_UPDATED, NULL, 0, 100 / portTICK_PERIOD_MS); // 发送事件通知主任务风扇转速更新了
-    // 500ms读取一次，符合空气炸锅等大热惯性设备的高效检测周期
+    // 1000ms读取一次，符合空气炸锅等大热惯性设备的高效检测周期
     vTaskDelay(pdMS_TO_TICKS(1000));
   }
 }
@@ -123,7 +123,7 @@ void ntc_adc_init(void)
 };
 ESP_ERROR_CHECK(adc_cali_create_scheme_curve_fitting(&cali_config, &cali_handle));
 
-  xTaskCreate(ntc_adc_task, "NTC_ADC_Task", 4096, NULL, 5, NULL);
+  xTaskCreate(ntc_adc_task, "NTC_ADC_Task", 4096, NULL, 8, NULL);
 }
 
 float ntc_adc_read_temperature(void) {

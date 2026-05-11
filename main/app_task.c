@@ -49,7 +49,7 @@ void app_event_handler(void* handler_arg, esp_event_base_t base, int32_t id, voi
         case EVENT_CMD_HOT:
             ESP_LOGI(TAG, "Handling EVENT_CMD_HOT");
             is_HOT_ON = !is_HOT_ON;
-            // V220_HOT_CON(is_HOT_ON);
+            V220_HOT_CON(is_HOT_ON);
             if(is_HOT_ON)
             {
                 _lock_acquire(&lvgl_api_lock);

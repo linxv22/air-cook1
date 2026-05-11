@@ -32,7 +32,7 @@ typedef enum {
 typedef struct {
     float temperature;
     uint32_t SPEED;
-    uint32_t time_mins;
+    uint32_t time_s;
 } cook_config_t;
 
 extern esp_event_loop_handle_t loop_handle;
