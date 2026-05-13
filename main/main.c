@@ -32,7 +32,11 @@ void app_main(void)
     ntc_adc_init();
     wifi_init();
 
-    ESP_LOGI(TAG, "Initialization complete. Starting main loop...");
+    
+    //修改测试代码
+
+
+
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(10000));
         ESP_LOGI(TAG, "Main loop running...");
