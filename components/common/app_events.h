@@ -30,7 +30,10 @@ typedef enum {
     EVENT_CMD_FAN_SPEED,    // 指令：设置风扇转速
     EVENT_TEMP_UPDATED,     // 状态：当前实际温度更新了 (用来通知屏幕刷新数字)
     EVENT_WIND_UPDATED,
+    EVENT_QR_CODE_READY,      // Wi-Fi DPP事件：QR Code准备好了，快去扫码连接吧
+    EVENT_WIFI_CONNECTED,    // Wi-Fi DPP事件：成功连接Wi-Fi了
 } air_cooker_event_id_t;
+
 
 // 定义烹饪事件结构体 (传命令到底层用得到)
 typedef struct {

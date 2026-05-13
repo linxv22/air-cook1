@@ -24,7 +24,7 @@ lv_obj_t * Remain_time_label;
 lv_obj_t * label_set_temp;
 lv_obj_t * label_set_time;
 lv_obj_t * label_set_fan;
-lv_timer_t * ui_timer = NULL;
+lv_obj_t * ui_qrcode = NULL;  // 新增：Wi-Fi 连接二维码句柄
 
 
 
@@ -54,7 +54,10 @@ void app_event_handler(void* handler_arg, esp_event_base_t base, int32_t id, voi
         case EVENT_TEMP_UPDATED: {
             _lock_acquire(&lvgl_api_lock);
             float current_temp = ntc_adc_read_temperature();
-            lv_label_set_text_fmt(Tem_label, "Cur Tem: %.1f °C", current_temp);
+            if(current_temp <100)
+            lv_label_set_text_fmt(Tem_label, "Cur Tem: #03c4ff %.1f # °C", current_temp);
+            else
+            lv_label_set_text_fmt(Tem_label, "Cur Tem: #ff0000 %.1f # °C", current_temp);
             uint32_t remain_s = aircook_gettime(); 
             if(remain_s > 0) {
                 lv_label_set_text_fmt(Remain_time_label, "Remain: %02ld:%02ld", remain_s / 60, remain_s % 60);
@@ -65,8 +68,57 @@ void app_event_handler(void* handler_arg, esp_event_base_t base, int32_t id, voi
             _lock_release(&lvgl_api_lock);
             break;
         }
+        case EVENT_QR_CODE_READY: {
+            // 事件携带了可用于生成二维码的 URI 字符串 (wifi.c 传来的内容)
+            const char* qr_url = (const char*)event_data;
+            ESP_LOGI(TAG, "Logic: QR Code is ready, waiting for user to scan and connect... URL: %s", qr_url);
+            
+            _lock_acquire(&lvgl_api_lock);
+            
+            // 如果旧的二维码存在，先清理
+            if (ui_qrcode != NULL) {
+                lv_obj_delete(ui_qrcode);
+                ui_qrcode = NULL;
+            }
+
+            // 在当前屏幕中心创建二维码控件
+            // 注意: 根据 LVGL 版本参数可能不同。LVGL v9+ 可能是 lv_qrcode_create(lv_screen_active())
+            ui_qrcode = lv_qrcode_create(lv_screen_active()); 
+            lv_obj_set_size(ui_qrcode, 200, 200);
+            // 或者 LVGL v8: ui_qrcode = lv_qrcode_create(lv_screen_active(), 150, lv_color_hex(0x000000), lv_color_hex(0xffffff));
+
+            // 更新二维码数据内容
+            lv_qrcode_update(ui_qrcode, qr_url, strlen(qr_url));
+            
+            // 居中显示，并在最前层防止被遮挡
+            lv_obj_center(ui_qrcode);
+            lv_obj_move_foreground(ui_qrcode);
+
+            _lock_release(&lvgl_api_lock);
+            break;
+        }
+        case EVENT_WIFI_CONNECTED: {
+            ESP_LOGI(TAG, "Logic: Wi-Fi connected successfully!");
+            
+            _lock_acquire(&lvgl_api_lock);
+            // Wi-Fi 成功连接后触发销毁二维码
+            if (ui_qrcode != NULL) {
+                lv_obj_delete(ui_qrcode);
+                ui_qrcode = NULL;
+                ESP_LOGI(TAG, "QR code removed from screen");
+            }
+            _lock_release(&lvgl_api_lock);
+            break;
+        }
+        default:
+            ESP_LOGW(TAG, "Logic: Unhandled event ID: %d", id);
+            break;
     }
 }
+
+
+
+
 
 void app_event_init (void)
 {
@@ -152,6 +204,8 @@ void ui_start(void)
 {
     _lock_acquire(&lvgl_api_lock);
     lv_obj_t * scr = lv_screen_active();
+    // 设置屏幕背景色 #FFFFFF
+    lv_obj_set_style_bg_color(scr, lv_color_hex(0xFFFFFF), 0);
 
     /* 顶部标题区 */
     lv_obj_t * title_label = lv_label_create(scr);
@@ -161,12 +215,15 @@ void ui_start(void)
 
     /* 状态显示区 */
     Tem_label = lv_label_create(scr);
-    lv_label_set_text(Tem_label, "Cur Tem: 25.0 °C");
-    lv_obj_align(Tem_label, LV_ALIGN_TOP_LEFT, 10, 35); 
+    // 1. 开启该标签的重新着色支持
+    lv_label_set_recolor(Tem_label, true); 
+    //  #FF0000 上，VS Code 会自动弹调色板
+    lv_label_set_text(Tem_label, "Cur Tem: #006aff 25.0 °C#");
+    lv_obj_align(Tem_label, LV_ALIGN_TOP_LEFT, 10, 45); 
 
     Remain_time_label = lv_label_create(scr);
     lv_label_set_text(Remain_time_label, "Remain: 00:00");
-    lv_obj_align(Remain_time_label, LV_ALIGN_TOP_RIGHT, -10, 35);
+    lv_obj_align(Remain_time_label, LV_ALIGN_TOP_RIGHT, -10, 45);
 
     /* 参数调控区 (y 轴通过像素偏移) */
     

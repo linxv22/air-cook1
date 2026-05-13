@@ -16,3 +16,4 @@ dependencies:
   #   public: true
   lvgl/lvgl: ^9.5.0
   atanisoft/esp_lcd_touch_xpt2046: ^1.0.6
+  espressif/qrcode: ^0.2.0
