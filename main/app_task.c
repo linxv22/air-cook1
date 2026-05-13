@@ -27,6 +27,8 @@ lv_obj_t * label_set_fan;
 lv_obj_t * ui_qrcode = NULL;  // 新增：Wi-Fi 连接二维码句柄
 
 
+// 工作状态，当前时间，当前温度，风扇转速，剩余时间，联网状态（顶层右上角WiFI小标志），语音识别的界面（识别到主人说话了就弹出，涉及到LVGL加字库）
+
 
 // ================= 事件中枢 (统一处理底层控制逻辑) =================
 void app_event_handler(void* handler_arg, esp_event_base_t base, int32_t id, void* event_data)
@@ -55,13 +57,13 @@ void app_event_handler(void* handler_arg, esp_event_base_t base, int32_t id, voi
             _lock_acquire(&lvgl_api_lock);
             float current_temp = ntc_adc_read_temperature();
             if(current_temp <100)
-            lv_label_set_text_fmt(Tem_label, "Cur Tem: #03c4ff %.1f # °C", current_temp);
+            lv_label_set_text_fmt(Tem_label, "Cur Tem: #3c2e2e %.1f # °C", current_temp);
             else
-            lv_label_set_text_fmt(Tem_label, "Cur Tem: #ff0000 %.1f # °C", current_temp);
+            lv_label_set_text_fmt(Tem_label, "Cur Tem: #c6adad %.1f # °C", current_temp);
             uint32_t remain_s = aircook_gettime(); 
             if(remain_s > 0) {
                 lv_label_set_text_fmt(Remain_time_label, "Remain: %02ld:%02ld", remain_s / 60, remain_s % 60);
-         } 
+            } 
             else {
                 lv_label_set_text(Remain_time_label, "Remain: 00:00");
             }
@@ -115,10 +117,6 @@ void app_event_handler(void* handler_arg, esp_event_base_t base, int32_t id, voi
             break;
     }
 }
-
-
-
-
 
 void app_event_init (void)
 {
@@ -204,7 +202,7 @@ void ui_start(void)
 {
     _lock_acquire(&lvgl_api_lock);
     lv_obj_t * scr = lv_screen_active();
-    // 设置屏幕背景色 #FFFFFF
+    // 设置屏幕背景色 #db0404
     lv_obj_set_style_bg_color(scr, lv_color_hex(0xFFFFFF), 0);
 
     /* 顶部标题区 */
@@ -217,7 +215,7 @@ void ui_start(void)
     Tem_label = lv_label_create(scr);
     // 1. 开启该标签的重新着色支持
     lv_label_set_recolor(Tem_label, true); 
-    //  #FF0000 上，VS Code 会自动弹调色板
+    //  #22a0a418 上，VS Code 会自动弹调色板
     lv_label_set_text(Tem_label, "Cur Tem: #006aff 25.0 °C#");
     lv_obj_align(Tem_label, LV_ALIGN_TOP_LEFT, 10, 45); 
 

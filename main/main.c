@@ -15,6 +15,8 @@ static const char *TAG = "main";
 void app_event_init (void);
 void ui_start(void);
 
+
+// WiFI，UI界面
 void app_main(void)
 {
      //Initialize NVS
