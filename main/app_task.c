@@ -2,8 +2,11 @@
 #include "NTC_ADC.h"
 #include "V220_CON.h"
 #include "LCD.h"
-#include "lvgl.h"
+#include "WIFI.h"
 
+
+
+#include "lvgl.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -29,6 +32,7 @@ lv_obj_t * ui_qrcode = NULL;  // 新增：Wi-Fi 连接二维码句柄
 
 // 工作状态，当前时间，当前温度，风扇转速，剩余时间，联网状态（顶层右上角WiFI小标志），语音识别的界面（识别到主人说话了就弹出，涉及到LVGL加字库）
 
+WIFI_state_t WIFI_STATE = WIFI_STATE_INIT;
 
 // ================= 事件中枢 (统一处理底层控制逻辑) =================
 void app_event_handler(void* handler_arg, esp_event_base_t base, int32_t id, void* event_data)
@@ -72,6 +76,19 @@ void app_event_handler(void* handler_arg, esp_event_base_t base, int32_t id, voi
         }
         case EVENT_QR_CODE_READY: {
             // 事件携带了可用于生成二维码的 URI 字符串 (wifi.c 传来的内容)
+            if(WIFI_STATE == WIFI_STATE_DISCONNECTED)
+            {
+                //wifi连接失败重新启动dpp配网功能
+                //配套设计ui界面
+            }
+            else if(WIFI_STATE == WIFI_STATE_INIT )
+            {
+                //首次启动，flash无wifi信息
+                //配套设计ui界面
+            }
+            WIFI_STATE = WIFI_STATE_PROVISIONING;
+            //页面提示如何进行wifi配网
+
             const char* qr_url = (const char*)event_data;
             ESP_LOGI(TAG, "Logic: QR Code is ready, waiting for user to scan and connect... URL: %s", qr_url);
             
@@ -86,7 +103,7 @@ void app_event_handler(void* handler_arg, esp_event_base_t base, int32_t id, voi
             // 在当前屏幕中心创建二维码控件
             // 注意: 根据 LVGL 版本参数可能不同。LVGL v9+ 可能是 lv_qrcode_create(lv_screen_active())
             ui_qrcode = lv_qrcode_create(lv_screen_active()); 
-            lv_obj_set_size(ui_qrcode, 200, 200);
+            lv_obj_set_size(ui_qrcode, 150, 150);
             // 或者 LVGL v8: ui_qrcode = lv_qrcode_create(lv_screen_active(), 150, lv_color_hex(0x000000), lv_color_hex(0xffffff));
 
             // 更新二维码数据内容
@@ -101,7 +118,7 @@ void app_event_handler(void* handler_arg, esp_event_base_t base, int32_t id, voi
         }
         case EVENT_WIFI_CONNECTED: {
             ESP_LOGI(TAG, "Logic: Wi-Fi connected successfully!");
-            
+            WIFI_STATE = WIFI_STATE_CONNECTED;
             _lock_acquire(&lvgl_api_lock);
             // Wi-Fi 成功连接后触发销毁二维码
             if (ui_qrcode != NULL) {
@@ -109,7 +126,14 @@ void app_event_handler(void* handler_arg, esp_event_base_t base, int32_t id, voi
                 ui_qrcode = NULL;
                 ESP_LOGI(TAG, "QR code removed from screen");
             }
+            //ui添加连接成功标志
             _lock_release(&lvgl_api_lock);
+            break;
+        }
+        case EVENT_WIFI_DISCONNECTED:{
+            WIFI_STATE = WIFI_STATE_DISCONNECTED;
+            //自动连接失败，底层自动启动配网模式
+            
             break;
         }
         default:

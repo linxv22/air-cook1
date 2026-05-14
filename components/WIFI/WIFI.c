@@ -10,6 +10,7 @@
 #include "esp_log.h"
 #include "esp_dpp.h"
 #include "qrcode.h"
+
 #include "app_events.h"
 
 
@@ -23,10 +24,13 @@ static EventGroupHandle_t s_dpp_event_group;
  * - we are connected to the AP with an IP
  * - we failed to connect after the maximum amount of retries */
 
-#define DPP_CONNECTED_BIT        BIT0
+#define DPP_start_BIT            BIT0
 #define DPP_CONNECT_FAIL_BIT     BIT1
 #define DPP_AUTH_FAIL_BIT        BIT2
+#define DPP_CONNECT_SUC_BIT      BIT3
 #define WIFI_MAX_RETRY_NUM          5
+
+static bool s_dpp_started = false; // 记录 DPP 状态
 
 #define DPP_DEVICE_INFO ""
 #define DPP_BOOTSTRAPPING_KEY ""
@@ -37,10 +41,11 @@ static EventGroupHandle_t s_dpp_event_group;
 static const char *TAG = "wifi dapp";
 
 
-wifi_config_t s_dpp_wifi_config;
+static wifi_config_t s_dpp_wifi_config;
 
 static int s_retry_num = 0;
 
+static esp_err_t dpp_enrollee_bootstrap(void);
 
 static void wifi_event_handler(void *arg, esp_event_base_t event_base,
                           int32_t event_id, void *event_data)
@@ -48,16 +53,27 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base,
     if (event_base == WIFI_EVENT) {
         switch (event_id) {
         case WIFI_EVENT_STA_START:
-            ESP_ERROR_CHECK(esp_supp_dpp_start_listen());
-            ESP_LOGI(TAG, "Started listening for DPP Authentication");
+            esp_wifi_get_config(WIFI_IF_STA, &s_dpp_wifi_config);
+
+            if (strlen((const char *)s_dpp_wifi_config.sta.ssid) > 0) {
+                // 情况B：NVS 中有 SSID 记录，尝试连接
+            ESP_LOGI(TAG, "Found saved Wi-Fi SSID: %s. Trying to connect...", s_dpp_wifi_config.sta.ssid);
+                esp_wifi_connect();
+            } else {
+            // 情况A：首次开机，直接进入配网模式
+            ESP_LOGI(TAG, "No saved Wi-Fi found. Starting DPP immediately.");
+            xEventGroupSetBits(s_dpp_event_group, DPP_start_BIT);
+            }
             break;
         case WIFI_EVENT_STA_DISCONNECTED:
             if (s_retry_num < WIFI_MAX_RETRY_NUM) {
                 esp_wifi_connect();
                 s_retry_num++;
                 ESP_LOGI(TAG, "Disconnect event, retry to connect to the AP");
-            } else {
-                xEventGroupSetBits(s_dpp_event_group, DPP_CONNECT_FAIL_BIT);
+            } else { 
+               xEventGroupSetBits(s_dpp_event_group, DPP_start_BIT);
+               esp_event_post_to(loop_handle, AIR_COOKER_EVENTS, EVENT_WIFI_DISCONNECTED, NULL, 0, portMAX_DELAY);
+               ESP_LOGI(TAG, "自动连接失败启动DPP配网");
             }
             break;
         case WIFI_EVENT_STA_CONNECTED:
@@ -66,9 +82,9 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base,
         case WIFI_EVENT_DPP_URI_READY:
             wifi_event_dpp_uri_ready_t *uri_data = event_data;
             if (uri_data != NULL) {
-                esp_qrcode_config_t cfg = ESP_QRCODE_CONFIG_DEFAULT();
+                // esp_qrcode_config_t cfg = ESP_QRCODE_CONFIG_DEFAULT();
 
-                ESP_LOGI(TAG, "Scan below QR Code to configure the enrollee:");
+                ESP_LOGI(TAG, "二维码信息生成完毕");
                 //控制台显示二维码
                 // esp_qrcode_generate(&cfg, (const char *)uri_data->uri);
                 //投递事件给 UI 层，携带 URI 数据
@@ -101,14 +117,20 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base,
         ip_event_got_ip_t *event = (ip_event_got_ip_t *) event_data;
         ESP_LOGI(TAG, "got ip:" IPSTR, IP2STR(&event->ip_info.ip));
         s_retry_num = 0;
-        xEventGroupSetBits(s_dpp_event_group, DPP_CONNECTED_BIT);
+        xEventGroupSetBits(s_dpp_event_group, DPP_CONNECT_SUC_BIT);
+        // ✅ 只有开启了 DPP 才需要销毁
+        if (s_dpp_started) {
+            esp_supp_dpp_deinit();
+            s_dpp_started = false;
+        }
         esp_event_post_to(loop_handle, AIR_COOKER_EVENTS, EVENT_WIFI_CONNECTED, NULL, 0, portMAX_DELAY);
     }
 }
 
 
-esp_err_t dpp_enrollee_bootstrap(void)
+static esp_err_t dpp_enrollee_bootstrap(void)
 {
+    ESP_ERROR_CHECK(esp_supp_dpp_init());
     esp_err_t ret;
     size_t pkey_len = strlen(DPP_BOOTSTRAPPING_KEY);
     char *key = NULL;
@@ -135,9 +157,13 @@ esp_err_t dpp_enrollee_bootstrap(void)
     ret = esp_supp_dpp_bootstrap_gen(DPP_LISTEN_CHANNEL_LIST, DPP_BOOTSTRAP_QR_CODE,
                                      key, DPP_DEVICE_INFO);
 
+    
+
     if (key)
         free(key);
-
+    vTaskDelay(200/portTICK_PERIOD_MS);
+    ESP_ERROR_CHECK(esp_supp_dpp_start_listen());
+    s_dpp_started = true;
     return ret;
 }
 
@@ -145,54 +171,37 @@ void wifi_init(void)
 {
 
     s_dpp_event_group = xEventGroupCreate();
-    //初始化底层TCP/IP协议栈
+    //创建一个 LwIP 核心任务，并初始化 LwIP 相关工作。
     ESP_ERROR_CHECK(esp_netif_init());
     //创建默认事件循环
     ESP_ERROR_CHECK(esp_event_loop_create_default());
     //创建默认无线局域网站点。若出现任何初始化错误，该应用程序接口将终止执行。
     esp_netif_create_default_wifi_sta();
-
+    /* 注册 Wi-Fi 和 IP 相关事件的事件处理程序 */
+    ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handler, NULL));
+    ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &wifi_event_handler, NULL));
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     //为无线网卡驱动分配资源，包括无线网络控制结构体、接收/发送缓冲区、无线网络非易失性存储结构体等。同时，该无线网络模块会启动无线网络任务。
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));
 
-    /* 注册 Wi-Fi 和 IP 相关事件的事件处理程序 */
-    ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handler, NULL));
-    ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &wifi_event_handler, NULL));
-
-
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA) );
-    ESP_ERROR_CHECK(esp_supp_dpp_init());
-    ESP_ERROR_CHECK(dpp_enrollee_bootstrap());
-    ESP_ERROR_CHECK(esp_wifi_start() );
 
-    ESP_LOGI(TAG, "wifi_dap finished.");    
+    ESP_ERROR_CHECK(esp_wifi_start() );
 
   /* Waiting until either the connection is established (WIFI_CONNECTED_BIT) or connection failed for the maximum
      * number of re-tries (WIFI_FAIL_BIT). The bits are set by wifi_event_handler() (see above) */
     EventBits_t bits = xEventGroupWaitBits(s_dpp_event_group,
-                                           DPP_CONNECTED_BIT | DPP_CONNECT_FAIL_BIT | DPP_AUTH_FAIL_BIT,
+                                           DPP_start_BIT | DPP_CONNECT_SUC_BIT ,
                                            pdFALSE,
                                            pdFALSE,
                                            portMAX_DELAY);
 
     /* xEventGroupWaitBits() returns the bits before the call returned, hence we can test which event actually
      * happened. */
-    if (bits & DPP_CONNECTED_BIT) {
-    } else if (bits & DPP_CONNECT_FAIL_BIT) {
-        ESP_LOGI(TAG, "Failed to connect to SSID:%s, password:%s",
-                 s_dpp_wifi_config.sta.ssid, s_dpp_wifi_config.sta.password);
-    } else if (bits & DPP_AUTH_FAIL_BIT) {
-        ESP_LOGI(TAG, "DPP Authentication failed after %d retries", s_retry_num);
-    } else {
-        ESP_LOGE(TAG, "UNEXPECTED EVENT");
-    }
-
-    esp_supp_dpp_deinit();
-    ESP_ERROR_CHECK(esp_event_handler_unregister(IP_EVENT, IP_EVENT_STA_GOT_IP, &wifi_event_handler));
-    ESP_ERROR_CHECK(esp_event_handler_unregister(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handler));
+    if(bits == DPP_start_BIT)
+    ESP_ERROR_CHECK(dpp_enrollee_bootstrap());
+    ESP_LOGI(TAG, "DPP配网启动成功");
+   
     vEventGroupDelete(s_dpp_event_group);
-
-
 }
 

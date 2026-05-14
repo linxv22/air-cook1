@@ -22,16 +22,20 @@ ESP_EVENT_DECLARE_BASE(AIR_COOKER_EVENTS);
 #define FAN_CON_GPIO GPIO_NUM_11
 #define ZERO_CROSS GPIO_NUM_5
 
+extern esp_event_loop_handle_t loop_handle;
+
 // 定义所有的事件 ID (动词：谁让系统干嘛，或者系统发生了什么)
 typedef enum {
-    EVENT_CMD_aircook,          // 指令：开始工作
+    EVENT_CMD_aircook = 0,          // 指令：开始工作
     EVENT_CMD_SET_TEMP,         // 指令：设置目标温度
     EVENT_CMD_STOP,             // 指令：停止工作
     EVENT_CMD_FAN_SPEED,        // 指令：设置风扇转速
     EVENT_TEMP_UPDATED,         // 状态：当前实际温度更新了 (用来通知屏幕刷新数字)
     EVENT_WIND_UPDATED,
+    //WIFI事件更新
     EVENT_QR_CODE_READY,        // Wi-Fi DPP事件：QR Code准备好了，快去扫码连接吧
     EVENT_WIFI_CONNECTED,       // Wi-Fi DPP事件：成功连接Wi-Fi了
+    EVENT_WIFI_DISCONNECTED,
 } air_cooker_event_id_t;
 
 
@@ -41,4 +45,12 @@ typedef struct {
     uint32_t time_s;//设定烹饪时间
 } cook_config_t;
 
-extern esp_event_loop_handle_t loop_handle;
+//设备wifi状态结构体
+typedef enum{
+    WIFI_STATE_INIT = 0,       // 初始状态 / 准备中
+    WIFI_STATE_CONNECTED,      // 已成功连接并获取到 IP
+    WIFI_STATE_DISCONNECTED,   // 断开连接（正在后台自动重连）
+    WIFI_STATE_PROVISIONING    // 处于配网模式（正在等待扫码）
+} WIFI_state_t;
+
+
