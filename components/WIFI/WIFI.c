@@ -130,7 +130,7 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base,
 
 static esp_err_t dpp_enrollee_bootstrap(void)
 {
-    ESP_ERROR_CHECK(esp_supp_dpp_init());
+    ESP_ERROR_CHECK(esp_supp_dpp_init(NULL));
     esp_err_t ret;
     size_t pkey_len = strlen(DPP_BOOTSTRAPPING_KEY);
     char *key = NULL;
