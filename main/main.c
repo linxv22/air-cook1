@@ -41,6 +41,14 @@ void app_main(void)
 
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(10000));
-        ESP_LOGI(TAG, "Main loop running...");
+        // 打印所有可用内存（内部 DRAM + 外部 PSRAM）
+        uint32_t free_heap = esp_get_free_heap_size();
+        // 专门打印内部 DRAM 的可用内存
+        uint32_t free_internal = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+        // 专门打印外部 PSRAM 的可用内存 (如果有的话)
+        uint32_t free_psram = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+
+        ESP_LOGI(TAG, "Main loop running... Free Heap: %lu Bytes, Internal RAM: %lu Bytes, PSRAM: %lu Bytes", 
+                 free_heap, free_internal, free_psram);
     }
 }
