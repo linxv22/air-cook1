@@ -34,10 +34,7 @@ void app_main(void)
     ntc_adc_init();
     wifi_init();
 
-    
     //修改测试代码
-
-
 
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(10000));
