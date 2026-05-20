@@ -123,7 +123,7 @@ void ntc_adc_init(void)
 };
 ESP_ERROR_CHECK(adc_cali_create_scheme_curve_fitting(&cali_config, &cali_handle));
 
-  xTaskCreate(ntc_adc_task, "NTC_ADC_Task", 4096, NULL, 8, NULL);
+  xTaskCreate(ntc_adc_task, "NTC_ADC_Task", 2048, NULL, 8, NULL);
 }
 
 float ntc_adc_read_temperature(void) {

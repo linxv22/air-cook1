@@ -22,6 +22,27 @@ ESP_EVENT_DECLARE_BASE(AIR_COOKER_EVENTS);
 #define FAN_CON_GPIO GPIO_NUM_11
 #define ZERO_CROSS GPIO_NUM_5
 
+//I2C引脚定义
+#define ES_I2C_SDA GPIO_NUM_17
+#define ES_I2C_CLK GPIO_NUM_18
+
+//I2S引脚定义
+#define Codec_I2S0_DSDIN GPIO_NUM_8
+#define Codec_I2S0_MCLK GPIO_NUM_16
+#define Codec_I2S0_SCLK GPIO_NUM_9
+#define Codec_I2S0_LRCK GPIO_NUM_45
+
+//ES7210引脚定义
+#define ES7210_SDOUT GPIO_NUM_10
+
+//PA引脚定义
+#define PA_CTRL GPIO_NUM_48
+
+//micro sd卡引脚定义
+#define ESP0_SD_CLK GPIO_NUM_15
+#define ESP0_SD_CMD GPIO_NUM_7
+#define ESP0_SD_DAT0 GPIO_NUM_4
+
 extern esp_event_loop_handle_t loop_handle;
 
 // 定义所有的事件 ID (动词：谁让系统干嘛，或者系统发生了什么)
