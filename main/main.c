@@ -10,11 +10,12 @@
 #include "LCD.h"
 #include "app_events.h"
 #include "my_audio.h"
+#include "ui_con.h"
 
 static const char *TAG = "main";
 
 void app_event_init (void);
-void ui_start(void);
+
 
 
 // WiFI，UI界面
@@ -34,7 +35,7 @@ void app_main(void)
     v220_con_init();
     ntc_adc_init();
     wifi_init();
-    my_audio_init();
+    // my_audio_init();
 
     //修改测试代码
 

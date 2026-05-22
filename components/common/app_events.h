@@ -47,18 +47,23 @@ extern esp_event_loop_handle_t loop_handle;
 
 // 定义所有的事件 ID (动词：谁让系统干嘛，或者系统发生了什么)
 typedef enum {
-    EVENT_CMD_aircook = 0,          // 指令：开始工作
+    EVENT_CMD_aircook = 0,      // 指令：开始工作
     EVENT_CMD_SET_TEMP,         // 指令：设置目标温度
+    EVENT_CMD_FAN_SPEED,        // 指令：设置风扇速度
     EVENT_CMD_STOP,             // 指令：停止工作
-    EVENT_CMD_FAN_SPEED,        // 指令：设置风扇转速
+    //状态更新事件：底层状态机发生了变化，通知 UI 刷新显示
     EVENT_TEMP_UPDATED,         // 状态：当前实际温度更新了 (用来通知屏幕刷新数字)
-    EVENT_WIND_UPDATED,
+    EVENT_WIND_UPDATED,         // 状态：当前显示页面更新了
     //WIFI事件更新
     EVENT_QR_CODE_READY,        // Wi-Fi DPP事件：QR Code准备好了，快去扫码连接吧
     EVENT_WIFI_CONNECTED,       // Wi-Fi DPP事件：成功连接Wi-Fi了
-    EVENT_WIFI_DISCONNECTED,
+    EVENT_WIFI_DISCONNECTED,    // Wi-Fi事件：Wi-Fi断开了
 } air_cooker_event_id_t;
 
+typedef enum {
+    wind_main,
+    wind_working,
+}wind_state_t;
 
 // 定义烹饪事件结构体 (传命令到底层用得到)
 typedef struct {

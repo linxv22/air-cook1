@@ -130,10 +130,10 @@ static void cook_control(void *arg)
                         }
                     } 
                     else if (temp_diff <= 10.0f ) {
-                        // 阶段2【惯性防冲/越界断开】：距离目标还有2度就提前断开，防止余温把锅冲爆
+                        // 阶段2【惯性防冲/越界断开】：距离目标还有10度就提前断开，防止余温把锅冲爆
                         if (target_relay_state == true) {
                             target_relay_state = false;
-                            relay_lock_sec = 30; // 断开后至少需要等30秒才能再次吸合
+                            relay_lock_sec = 10; // 断开后至少需要等10秒才能再次吸合
                         }
                     } 
                     else if (temp_diff > 10.0f && temp_diff <= 30.0f) {
