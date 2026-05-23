@@ -248,9 +248,27 @@ void v220_con_init(void)
 
 void aircook_start(cook_config_t *config)
 {
-    current_config.time_s = config->time_s; // 更新全局配置
+    // 更新全局配置时间和温度
+    current_config.time_s = config->time_s; 
     current_config.temperature = config->temperature;
-    current_config.SPEED = 80;
+
+    // 根据传入的枚举值确定硬件的实际风速百分比
+        switch (config->fan_speed) {
+            case fan_high:
+                current_config.SPEED = 85; 
+                break;
+            case fan_mid:
+                current_config.SPEED = 70;
+                break;
+            case fan_low:
+                current_config.SPEED = 60;
+                break;
+            default:
+                current_config.SPEED = 60; // 越界保护，默认为低速
+                break;
+        }
+    
+    // 切换底层状态机为运行
     current_config.state = cook_running;
 }
 
@@ -259,9 +277,22 @@ void aircook_set_tem(float tem)
     current_config.temperature = tem;
 }
 
-void aircook_set_speed(uint32_t speed)
+void aircook_set_speed(fan_speed_t speed)
 {
-    current_config.SPEED = speed;
+     switch (speed) {
+            case fan_high:
+                current_config.SPEED = 85; 
+                break;
+            case fan_mid:
+                current_config.SPEED = 70;
+                break;
+            case fan_low:
+                current_config.SPEED = 60;
+                break;
+            default:
+                current_config.SPEED = 60; // 越界保护，默认为低速
+                break;
+        }
 }
 
 void aircook_stop(void)

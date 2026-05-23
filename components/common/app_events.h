@@ -45,7 +45,7 @@ ESP_EVENT_DECLARE_BASE(AIR_COOKER_EVENTS);
 
 extern esp_event_loop_handle_t loop_handle;
 
-// 定义所有的事件 ID (动词：谁让系统干嘛，或者系统发生了什么)
+// 定义所有的事件 ID 
 typedef enum {
     EVENT_CMD_aircook = 0,      // 指令：开始工作
     EVENT_CMD_SET_TEMP,         // 指令：设置目标温度
@@ -65,10 +65,17 @@ typedef enum {
     wind_working,
 }wind_state_t;
 
+typedef enum {
+    fan_high = 0,
+    fan_mid,
+    fan_low,
+}fan_speed_t;
+
 // 定义烹饪事件结构体 (传命令到底层用得到)
 typedef struct {
     float temperature;//设定温度
     uint32_t time_s;//设定烹饪时间
+    fan_speed_t fan_speed;//设定风扇速度
 } cook_config_t;
 
 //设备wifi状态结构体
@@ -78,5 +85,3 @@ typedef enum{
     WIFI_STATE_DISCONNECTED,   // 断开连接（正在后台自动重连）
     WIFI_STATE_PROVISIONING    // 处于配网模式（正在等待扫码）
 } WIFI_state_t;
-
-

@@ -17,6 +17,8 @@
 #include "lwip/err.h"
 #include "lwip/sys.h"
 
+/* ========== 新增：本地 URI 状态与缓存 ========== */
+static char s_dpp_uri_buffer[256] = {0};
 /* FreeRTOS event group to signal when we are connected*/
 static EventGroupHandle_t s_dpp_event_group;
 
@@ -82,13 +84,10 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base,
         case WIFI_EVENT_DPP_URI_READY:
             wifi_event_dpp_uri_ready_t *uri_data = event_data;
             if (uri_data != NULL) {
-                // esp_qrcode_config_t cfg = ESP_QRCODE_CONFIG_DEFAULT();
-
-                ESP_LOGI(TAG, "二维码信息生成完毕");
-                //控制台显示二维码
-                // esp_qrcode_generate(&cfg, (const char *)uri_data->uri);
-                //投递事件给 UI 层，携带 URI 数据
-                esp_event_post_to(loop_handle, AIR_COOKER_EVENTS, EVENT_QR_CODE_READY, uri_data->uri, uri_data->uri_data_len, portMAX_DELAY);
+                /* 新增：缓存 URI 数据以便外界提取 */
+                strncpy(s_dpp_uri_buffer, uri_data->uri, sizeof(s_dpp_uri_buffer) - 1);
+                //投递事件给 UI 层，通知二维码准备好了
+                esp_event_post_to(loop_handle, AIR_COOKER_EVENTS, EVENT_QR_CODE_READY, NULL, 0 , portMAX_DELAY);
             }
             break;
         case WIFI_EVENT_DPP_CFG_RECVD:
@@ -204,4 +203,7 @@ void wifi_init(void)
    
     vEventGroupDelete(s_dpp_event_group);
 }
-
+const char* wifi_get_dpp_uri(void)
+{
+    return s_dpp_uri_buffer;
+}

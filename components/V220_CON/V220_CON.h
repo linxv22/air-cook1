@@ -34,7 +34,7 @@ uint32_t aircook_gettime(void);
 //停止烹饪过程
 void aircook_stop(void);
 //设定风扇转速
-void aircook_set_speed(uint32_t speed);
+void aircook_set_speed(fan_speed_t speed);
 
 
 // Your header file content here
