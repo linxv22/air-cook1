@@ -36,7 +36,7 @@
 /**
  * @brief LCD SCREEN Function Definition
  */
-#define FUNC_LCD_SCREEN_EN          (1)
+#define FUNC_LCD_SCREEN_EN          (-1)
 #define LCD_CTRL_GPIO               BIT(1) // TCA9554_GPIO_NUM_1
 #define LCD_RST_GPIO                BIT(2) // TCA9554_GPIO_NUM_2
 #define LCD_CS_GPIO                 BIT(3) // TCA9554_GPIO_NUM_3
@@ -78,7 +78,7 @@
 /**
  * @brief Camera Function Definition
  */
-#define FUNC_CAMERA_EN              (1)
+#define FUNC_CAMERA_EN              (-1)
 #define CAM_PIN_PWDN                -1
 #define CAM_PIN_RESET               -1
 #define CAM_PIN_XCLK                GPIO_NUM_40
@@ -120,8 +120,6 @@
 #define ES8311_MCLK_SOURCE        (0)  /* 0 From MCLK of esp32   1 From BCLK */
 #define ES7210_MIC_SELECT         (ES7210_INPUT_MIC1 | ES7210_INPUT_MIC2 | ES7210_INPUT_MIC3)
 
-// ========== 新增：Codec增益设置（这是最关键的！） ==========
-#define CODEC_DAC_GAIN            24  // ES8311 DAC最大增益30dB，推荐24dB（无爆音）
 
 /**
  * @brief ADC input data format
@@ -146,7 +144,7 @@ extern audio_hal_func_t AUDIO_CODEC_ES7210_DEFAULT_HANDLE;
 /**
  * @brief Button Function Definition
  */
-#define FUNC_BUTTON_EN              (1)
+#define FUNC_BUTTON_EN              (-1)
 #define INPUT_KEY_NUM               6
 #define BUTTON_VOLUP_ID             0
 #define BUTTON_VOLDOWN_ID           1

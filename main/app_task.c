@@ -49,7 +49,7 @@ void app_event_handler(void* handler_arg, esp_event_base_t base, int32_t id, voi
             break;
         }
         case EVENT_TEMP_UPDATED: {
-
+            ui_up_temp(ntc_adc_read_temperature());
             break;
         }
         case EVENT_QR_CODE_READY: {
@@ -63,6 +63,7 @@ void app_event_handler(void* handler_arg, esp_event_base_t base, int32_t id, voi
             ESP_LOGI(TAG, "Logic: Wi-Fi connected successfully!");
             WIFI_STATE = WIFI_STATE_CONNECTED;
             ui_wifi_up(WIFI_STATE);
+            time_sntp_init();
             break;
         }
         case EVENT_WIFI_DISCONNECTED:{

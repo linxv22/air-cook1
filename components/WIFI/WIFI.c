@@ -10,6 +10,9 @@
 #include "esp_log.h"
 #include "esp_dpp.h"
 #include "qrcode.h"
+#include "esp_sntp.h"
+#include "esp_netif_sntp.h"
+
 
 #include "app_events.h"
 
@@ -202,8 +205,18 @@ void wifi_init(void)
     ESP_LOGI(TAG, "DPP配网启动成功");
    
     vEventGroupDelete(s_dpp_event_group);
+
 }
+// 提供一个接口让 UI 层获取当前的 DPP URI（如果有的话）
 const char* wifi_get_dpp_uri(void)
 {
     return s_dpp_uri_buffer;
+}
+
+void time_sntp_init(void)
+{
+    esp_sntp_config_t config = ESP_NETIF_SNTP_DEFAULT_CONFIG("ntp.aliyun.com");
+    esp_netif_sntp_init(&config);
+    setenv("TZ", "CST-8", 1);
+    tzset();
 }

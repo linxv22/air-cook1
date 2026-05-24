@@ -8,5 +8,7 @@
 void ui_start(void);
 
 void ui_wifi_up(WIFI_state_t state);
+void ui_up_temp(float temp);
+
 
 #endif // ui_con.h

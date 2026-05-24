@@ -61,12 +61,12 @@ typedef enum {
 } air_cooker_event_id_t;
 
 typedef enum {
-    wind_main,
-    wind_working,
+    wind_main,   //ui主界面
+    wind_working,  //ui烹饪界面
 }wind_state_t;
 
 typedef enum {
-    fan_high = 0,
+    fan_high = 0, 
     fan_mid,
     fan_low,
 }fan_speed_t;

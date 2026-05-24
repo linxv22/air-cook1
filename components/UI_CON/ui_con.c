@@ -2,6 +2,8 @@
 
 #include "lvgl.h"
 #include "esp_log.h"
+#include <time.h> 
+
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -254,7 +256,7 @@ static lv_obj_t * create_ui_btn(lv_obj_t * parent, const char * txt, int x, int 
 }
 
 
-
+// ============ UI 相关函数实现 ============
 void ui_start(void)
 {
     _lock_acquire(&lvgl_api_lock);
@@ -367,7 +369,7 @@ void ui_start(void)
     _lock_release(&lvgl_api_lock);
 }
 
-
+// 提供一个接口让 app_task.c 可以更新 Wi-Fi 状态显示
 void ui_wifi_up(WIFI_state_t state)
 {
     _lock_acquire(&lvgl_api_lock);
@@ -401,4 +403,22 @@ void ui_wifi_up(WIFI_state_t state)
             break;
     }
      _lock_release(&lvgl_api_lock);
+}
+
+// 提供一个接口让 app_task.c 可以更新当前温度显示
+void ui_up_temp(float temp)
+{
+    time_t now;
+    struct tm timeinfo;
+    char strftime_buf[16];
+    time(&now);
+    // 转换为本地时间（需要你在系统中提前通过 setenv 和 tzset 设置好正确的时区，以及使用 SNTP 同步时间）
+    localtime_r(&now, &timeinfo);
+    // 格式化时间为 "HH:MM"，例如 "14:30"
+    strftime(strftime_buf, sizeof(strftime_buf), "%H:%M", &timeinfo);
+    // 这里的 current_config.temperature 应该在 app_task.c 收到温度更新事件时被更新了
+    _lock_acquire(&lvgl_api_lock);
+    lv_label_set_text_fmt(Tem_label, "Cur Tem: #006aff %.1f °C#", temp);
+    lv_label_set_text(time_label, strftime_buf); // 同时更新顶部的时间显示
+    _lock_release(&lvgl_api_lock);
 }
