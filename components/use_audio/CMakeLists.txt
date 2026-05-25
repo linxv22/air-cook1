@@ -1,7 +1,7 @@
 idf_component_register(SRCS "my_audio.c" 
                     INCLUDE_DIRS "." 
                     REQUIRES 
-                    esp_actions audio_sal audio_stream audio_hal audio_board audio_recorder esp_peripherals 
+                    esp_actions audio_sal audio_stream audio_hal audio_board audio_recorder esp_peripherals lwip
                     common 
                    # EMBED_FILES 
                    # "music-16b-2c-8000hz.mp3" 

@@ -37,7 +37,7 @@
 #define LVGL_TICK_PERIOD_MS    2
 #define LVGL_TASK_MAX_DELAY_MS 500
 #define LVGL_TASK_MIN_DELAY_MS 1000 / CONFIG_FREERTOS_HZ
-#define LVGL_TASK_STACK_SIZE   (16 * 1024)
+#define LVGL_TASK_STACK_SIZE   (4 * 1024)
 #define LVGL_TASK_PRIORITY     2
 
 
@@ -268,12 +268,36 @@ void LCD_Init(void) {
 
     
 
-    ESP_LOGI(TAG, "Create LVGL task");
-    xTaskCreate(lvgl_port_task, 
-        "LVGL", 
-        LVGL_TASK_STACK_SIZE,
-        NULL, 
-        LVGL_TASK_PRIORITY, 
-        NULL);
+    // ESP_LOGI(TAG, "Create LVGL task");
+    // xTaskCreate(lvgl_port_task, 
+    //     "LVGL", 
+    //     LVGL_TASK_STACK_SIZE,
+    //     NULL, 
+    //     LVGL_TASK_PRIORITY, 
+    //     NULL);
+    // ESP_LOGI(TAG, "LCD 初始化完成");
+
+    // +++ 替换为以下代码 +++
+    ESP_LOGI(TAG, "Create LVGL task in PSRAM");
+    
+    // 1. 从 PSRAM 分配任务栈内存
+    StackType_t *lvgl_task_stack = (StackType_t *)heap_caps_malloc(LVGL_TASK_STACK_SIZE, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    // 2. 从内部 RAM 分配 Task 的内部控制块 (TCB 必须在内部 RAM)
+    StaticTask_t *lvgl_task_buf = (StaticTask_t *)heap_caps_malloc(sizeof(StaticTask_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+
+    if (lvgl_task_stack != NULL && lvgl_task_buf != NULL) {
+        xTaskCreateStatic(lvgl_port_task, 
+            "LVGL", 
+            LVGL_TASK_STACK_SIZE,
+            NULL, 
+            LVGL_TASK_PRIORITY, 
+            lvgl_task_stack, 
+            lvgl_task_buf);
+    } else {
+        ESP_LOGE(TAG, "Failed to allocate memory for LVGL task!");
+    }
+    // +++++++++++++++++++++
+
     ESP_LOGI(TAG, "LCD 初始化完成");
+
 }
