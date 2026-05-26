@@ -252,15 +252,78 @@ static bool                   voice_reading = false;
 // 【已删】删除了整个 setup_player() 函数
 
 // 电脑的实际 IP 地址
-#define PC_IP_ADDR "192.168.104.187"  // 请修改为电脑的局域网 IP
+#define PC_IP_ADDR "192.168.199.187"  // 请修改为电脑的局域网 IP
 #define PC_TCP_PORT 12345
+
+// static void voice_read_task(void *args)
+// {
+//     const int buf_len = 2 * 1024;
+//     uint8_t *voiceData = audio_calloc(1, buf_len);
+//     int sock = -1;
+
+//     // 1. 创建 TCP socket
+//     sock = socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
+//     if (sock < 0) {
+//         printf("[TCP] 无法创建 socket, errno: %d\n", errno);
+//         free(voiceData);
+//         vTaskDelete(NULL);
+//         return;
+//     }
+
+//     struct sockaddr_in dest_addr;
+//     dest_addr.sin_addr.s_addr = inet_addr(PC_IP_ADDR);
+//     dest_addr.sin_family = AF_INET;
+//     dest_addr.sin_port = htons(PC_TCP_PORT);
+
+//     printf("[TCP] 正在尝试连接电脑 %s:%d ...\n", PC_IP_ADDR, PC_TCP_PORT);
+
+//     // 2. 连接到电脑的 TCP 服务端
+//     if (connect(sock, (struct sockaddr *)&dest_addr, sizeof(dest_addr)) != 0) {
+//         printf("\n❌ [TCP] 连接电脑失败! 请排查以下原因：\n");
+//         printf("   1. 电脑上的 Python 接收脚本是否已经先启动运行了？\n");
+//         printf("   2. ESP32 填写的电脑 IP (%s) 是否正确？\n", PC_IP_ADDR);
+//         printf("   3. 电脑的防火墙是否关闭？（Windows 防火墙经常拦截 TCP 入站连接）\n");
+//         printf("   4. ESP32 是否和电脑处于同一个 Wi-Fi 局域网下？\n");
+//         printf("   (errno: %d)\n\n", errno);
+        
+//         close(sock);
+//         free(voiceData);
+//         vTaskDelete(NULL);
+//         return;
+//     }
+
+//     printf("✔ [TCP] 成功连接上电脑！开始实时发送原始音频...\n");
+
+//     while (true) {
+//         // 直接读取最底层的原始音频流（绕过 Recorder 的 speeching 限制）
+//         int ret = raw_stream_read(raw_read, (char *)voiceData, buf_len);
+       
+//         if (ret > 0) {
+//             // 3. 使用 send 函数发送数据
+//             int sent = send(sock, voiceData, ret, 0);
+//             if (sent < 0) {
+//                 printf("[TCP] 发送失败 (连接可能已断开), errno: %d\n", errno);
+//                 break;
+//             }
+//         } else {
+//             // 没有读到数据时，稍作延时
+//             vTaskDelay(pdMS_TO_TICKS(10));
+//         }
+//     }
+
+//     printf("[TCP] 任务结束，正在关闭 Socket...\n");
+//     close(sock);
+//     free(voiceData);
+//     vTaskDelete(NULL);
+// }
 
 static void voice_read_task(void *args)
 {
     const int buf_len = 2 * 1024;
     uint8_t *voiceData = audio_calloc(1, buf_len);
+    int msg = 0;
+    TickType_t delay = portMAX_DELAY;    
     int sock = -1;
-
     // 1. 创建 TCP socket
     sock = socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
     if (sock < 0) {
@@ -269,7 +332,6 @@ static void voice_read_task(void *args)
         vTaskDelete(NULL);
         return;
     }
-
     struct sockaddr_in dest_addr;
     dest_addr.sin_addr.s_addr = inet_addr(PC_IP_ADDR);
     dest_addr.sin_family = AF_INET;
@@ -293,132 +355,109 @@ static void voice_read_task(void *args)
     }
 
     printf("✔ [TCP] 成功连接上电脑！开始实时发送原始音频...\n");
-
     while (true) {
-        // 直接读取最底层的原始音频流（绕过 Recorder 的 speeching 限制）
-        int ret = raw_stream_read(raw_read, (char *)voiceData, buf_len);
-        
-        if (ret > 0) {
-            // 3. 使用 send 函数发送数据
-            int sent = send(sock, voiceData, ret, 0);
-            if (sent < 0) {
-                printf("[TCP] 发送失败 (连接可能已断开), errno: %d\n", errno);
-                break;
+        if (xQueueReceive(rec_q, &msg, delay) == pdTRUE) {
+            switch (msg) {
+                case REC_START: {
+                    ESP_LOGW(TAG, "voice read begin");
+                    delay = 0;
+                    voice_reading = true;
+                    break;
+                }
+                case REC_STOP: {
+                    ESP_LOGW(TAG, "voice read stopped");
+                    delay = portMAX_DELAY;
+                    voice_reading = false;
+                    break;
+                }
+                case REC_CANCEL: {
+                    ESP_LOGW(TAG, "voice read cancel");
+                    delay = portMAX_DELAY;
+                    voice_reading = false;
+                    break;
+                }
+                default:
+                    break;
             }
-        } else {
-            // 没有读到数据时，稍作延时
-            vTaskDelay(pdMS_TO_TICKS(10));
+        }
+        int ret = 0;
+        if (voice_reading) {
+            ret = audio_recorder_data_read(recorder, voiceData, buf_len, portMAX_DELAY);
+            if (ret <= 0) {
+                ESP_LOGW(TAG, "audio recorder read finished %d", ret);
+                delay = portMAX_DELAY;
+                voice_reading = false;
+            }
+            else {
+                // 3. 使用 send 函数发送数据
+                int sent = send(sock, voiceData, ret, 0);
+                if (sent < 0) {
+                    printf("[TCP] 发送失败 (连接可能已断开), errno: %d\n", errno);
+                    break;
+                }
+            }
         }
     }
 
-    printf("[TCP] 任务结束，正在关闭 Socket...\n");
-    close(sock);
     free(voiceData);
     vTaskDelete(NULL);
 }
 
-// static void voice_read_task(void *args)
-// {
-//     const int buf_len = 2 * 1024;
-//     uint8_t *voiceData = audio_calloc(1, buf_len);
-//     int msg = 0;
-//     TickType_t delay = portMAX_DELAY;
+static esp_err_t rec_engine_cb(audio_rec_evt_t *event, void *user_data)
+{
+    if (AUDIO_REC_WAKEUP_START == event->type) {
+        recorder_sr_wakeup_result_t *wakeup_result = event->event_data;
 
-//     while (true) {
-//         if (xQueueReceive(rec_q, &msg, delay) == pdTRUE) {
-//             switch (msg) {
-//                 case REC_START: {
-//                     ESP_LOGW(TAG, "voice read begin");
-//                     delay = 0;
-//                     voice_reading = true;
-//                     break;
-//                 }
-//                 case REC_STOP: {
-//                     ESP_LOGW(TAG, "voice read stopped");
-//                     delay = portMAX_DELAY;
-//                     voice_reading = false;
-//                     break;
-//                 }
-//                 case REC_CANCEL: {
-//                     ESP_LOGW(TAG, "voice read cancel");
-//                     delay = portMAX_DELAY;
-//                     voice_reading = false;
-//                     break;
-//                 }
-//                 default:
-//                     break;
-//             }
-//         }
-//         int ret = 0;
-//         if (voice_reading) {
-//             ret = audio_recorder_data_read(recorder, voiceData, buf_len, portMAX_DELAY);
-//             if (ret <= 0) {
-//                 ESP_LOGW(TAG, "audio recorder read finished %d", ret);
-//                 delay = portMAX_DELAY;
-//                 voice_reading = false;
-//             }
-//         }
-//     }
-
-//     free(voiceData);
-//     vTaskDelete(NULL);
-// }
-
-// static esp_err_t rec_engine_cb(audio_rec_evt_t *event, void *user_data)
-// {
-//     if (AUDIO_REC_WAKEUP_START == event->type) {
-//         recorder_sr_wakeup_result_t *wakeup_result = event->event_data;
-
-//         ESP_LOGI(TAG, "rec_engine_cb - REC_EVENT_WAKEUP_START");
-//         ESP_LOGI(TAG, "wakeup: vol %f, mod idx %d, word idx %d", wakeup_result->data_volume, wakeup_result->wakenet_model_index, wakeup_result->wake_word_index);
+        ESP_LOGI(TAG, "rec_engine_cb - REC_EVENT_WAKEUP_START");
+        ESP_LOGI(TAG, "wakeup: vol %f, mod idx %d, word idx %d", wakeup_result->data_volume, wakeup_result->wakenet_model_index, wakeup_result->wake_word_index);
         
-//         // 【已修】删除了播放“叮咚”音效的代码 esp_audio_sync_play
+        // 【已修】删除了播放“叮咚”音效的代码 esp_audio_sync_play
         
-//         if (voice_reading) {
-//             int msg = REC_CANCEL;
-//             if (xQueueSend(rec_q, &msg, 0) != pdPASS) {
-//                 ESP_LOGE(TAG, "rec cancel send failed");
-//             }
-//         }
-//     } else if (AUDIO_REC_VAD_START == event->type) {
-//         ESP_LOGI(TAG, "rec_engine_cb - REC_EVENT_VAD_START");
-//         if (!voice_reading) {
-//             int msg = REC_START;
-//             if (xQueueSend(rec_q, &msg, 0) != pdPASS) {
-//                 ESP_LOGE(TAG, "rec start send failed");
-//             }
-//         }
-//     } else if (AUDIO_REC_VAD_END == event->type) {
-//         ESP_LOGI(TAG, "rec_engine_cb - REC_EVENT_VAD_STOP");
-//         if (voice_reading) {
-//             int msg = REC_STOP;
-//             if (xQueueSend(rec_q, &msg, 0) != pdPASS) {
-//                 ESP_LOGE(TAG, "rec stop send failed");
-//             }
-//         }
+        if (voice_reading) {
+            int msg = REC_CANCEL;
+            if (xQueueSend(rec_q, &msg, 0) != pdPASS) {
+                ESP_LOGE(TAG, "rec cancel send failed");
+            }
+        }
+    } else if (AUDIO_REC_VAD_START == event->type) {
+        ESP_LOGI(TAG, "rec_engine_cb - REC_EVENT_VAD_START");
+        if (!voice_reading) {
+            int msg = REC_START;
+            if (xQueueSend(rec_q, &msg, 0) != pdPASS) {
+                ESP_LOGE(TAG, "rec start send failed");
+            }
+        }
+    } else if (AUDIO_REC_VAD_END == event->type) {
+        ESP_LOGI(TAG, "rec_engine_cb - REC_EVENT_VAD_STOP");
+        if (voice_reading) {
+            int msg = REC_STOP;
+            if (xQueueSend(rec_q, &msg, 0) != pdPASS) {
+                ESP_LOGE(TAG, "rec stop send failed");
+            }
+        }
 
-//     } else if (AUDIO_REC_WAKEUP_END == event->type) {
-//         ESP_LOGI(TAG, "rec_engine_cb - REC_EVENT_WAKEUP_END");
-//         AUDIO_MEM_SHOW(TAG);
-//     } else if (AUDIO_REC_COMMAND_DECT <= event->type) {
-//         recorder_sr_mn_result_t *mn_result = event->event_data;
+    } else if (AUDIO_REC_WAKEUP_END == event->type) {
+        ESP_LOGI(TAG, "rec_engine_cb - REC_EVENT_WAKEUP_END");
+        AUDIO_MEM_SHOW(TAG);
+    } else if (AUDIO_REC_COMMAND_DECT <= event->type) {
+        recorder_sr_mn_result_t *mn_result = event->event_data;
 
-//         ESP_LOGI(TAG, "rec_engine_cb - AUDIO_REC_COMMAND_DECT");
-//         ESP_LOGW(TAG, "command %d, phrase_id %d, prob %f, str: %s"
-//             , event->type, mn_result->phrase_id, mn_result->prob, mn_result->str);
+        ESP_LOGI(TAG, "rec_engine_cb - AUDIO_REC_COMMAND_DECT");
+        ESP_LOGW(TAG, "command %d, phrase_id %d, prob %f, str: %s"
+            , event->type, mn_result->phrase_id, mn_result->prob, mn_result->str);
             
-//         // 【已修】删除了播放“好的”音效的代码 esp_audio_sync_play
+        // 【已修】删除了播放“好的”音效的代码 esp_audio_sync_play
         
-//     } else {
-//         ESP_LOGE(TAG, "Unkown event");
-//     }
-//     return ESP_OK;
-// }
+    } else {
+        ESP_LOGE(TAG, "Unkown event");
+    }
+    return ESP_OK;
+}
 
-// static int input_cb_for_afe(int16_t *buffer, int buf_sz, void *user_ctx, TickType_t ticks)
-// {
-//     return raw_stream_read(raw_read, (char *)buffer, buf_sz);
-// }
+static int input_cb_for_afe(int16_t *buffer, int buf_sz, void *user_ctx, TickType_t ticks)
+{
+    return raw_stream_read(raw_read, (char *)buffer, buf_sz);
+}
 
 static void start_recorder()
 {
@@ -426,19 +465,21 @@ static void start_recorder()
     audio_element_handle_t i2s_stream_reader;
     audio_pipeline_handle_t pipeline;
     audio_pipeline_cfg_t pipeline_cfg = DEFAULT_AUDIO_PIPELINE_CONFIG();
-    int bits_per_sample = 0;
     pipeline = audio_pipeline_init(&pipeline_cfg);
     if (NULL == pipeline) {
         return;
     }
-    bits_per_sample = CODEC_ADC_BITS_PER_SAMPLE;
-    i2s_stream_cfg_t i2s_cfg = I2S_STREAM_CFG_DEFAULT_WITH_PARA(CODEC_ADC_I2S_PORT, 48000, bits_per_sample, AUDIO_STREAM_READER);
+    i2s_stream_cfg_t i2s_cfg = I2S_STREAM_CFG_DEFAULT_WITH_PARA(CODEC_ADC_I2S_PORT, 48000, 32, AUDIO_STREAM_READER);
     i2s_stream_reader = i2s_stream_init(&i2s_cfg);
+    audio_element_set_music_info(i2s_stream_reader, 48000, 2, 16);
     audio_element_handle_t filter = NULL;
     rsp_filter_cfg_t rsp_cfg = DEFAULT_RESAMPLE_FILTER_CONFIG();
     rsp_cfg.src_rate = 48000;
     rsp_cfg.dest_rate = 16000;
-
+     rsp_cfg.mode = RESAMPLE_UNCROSS_MODE;
+    rsp_cfg.src_ch = 4;
+    rsp_cfg.dest_ch = 4;
+    rsp_cfg.max_indata_bytes = 1024;
     filter = rsp_filter_init(&rsp_cfg);
 
     raw_stream_cfg_t raw_cfg = RAW_STREAM_CFG_DEFAULT();
@@ -452,6 +493,7 @@ static void start_recorder()
         audio_pipeline_register(pipeline, filter, "filter");
         const char *link_tag[3] = {"i2s", "filter", "raw"};
         audio_pipeline_link(pipeline, &link_tag[0], 3);
+        esp_log_level_set("RSP_FILTER", ESP_LOG_INFO);
     } else {
         const char *link_tag[2] = {"i2s", "raw"};
         audio_pipeline_link(pipeline, &link_tag[0], 2);
@@ -460,27 +502,30 @@ static void start_recorder()
     audio_pipeline_run(pipeline);
     ESP_LOGI(TAG, "Recorder has been created");
 
-//     recorder_sr_cfg_t recorder_sr_cfg = DEFAULT_RECORDER_SR_CFG(audio_sr_input_fmt, "model", AFE_TYPE_SR, AFE_MODE_HIGH_PERF);
-//     recorder_sr_cfg.afe_cfg->memory_alloc_mode = AFE_MEMORY_ALLOC_MORE_PSRAM;
-//     recorder_sr_cfg.afe_cfg->wakenet_init = WAKENET_ENABLE;
-//     recorder_sr_cfg.afe_cfg->vad_mode = VAD_MODE_4;
-//     recorder_sr_cfg.multinet_init = MULTINET_ENABLE;
-// #if !defined(CONFIG_SR_MN_CN_NONE)
-//     recorder_sr_cfg.mn_language = ESP_MN_CHINESE;
-// #elif !defined(CONFIG_SR_MN_EN_NONE)
-//     recorder_sr_cfg.mn_language = ESP_MN_ENGLISH;
-// #else
-//     recorder_sr_cfg.mn_language = "";
-// #endif
-//     recorder_sr_cfg.afe_cfg->aec_init = RECORD_HARDWARE_AEC;
-//     recorder_sr_cfg.afe_cfg->agc_mode = AFE_MN_PEAK_NO_AGC;
+    recorder_sr_cfg_t recorder_sr_cfg = DEFAULT_RECORDER_SR_CFG(audio_sr_input_fmt, "model", AFE_TYPE_SR, AFE_MODE_HIGH_PERF);
+    recorder_sr_cfg.afe_cfg->memory_alloc_mode = AFE_MEMORY_ALLOC_MORE_PSRAM;
+    recorder_sr_cfg.afe_cfg->wakenet_init = WAKENET_ENABLE;
+    recorder_sr_cfg.afe_cfg->vad_mode = VAD_MODE_4;
+    recorder_sr_cfg.multinet_init = 0;
+#if !defined(CONFIG_SR_MN_CN_NONE)
+    recorder_sr_cfg.mn_language = ESP_MN_CHINESE;
+#elif !defined(CONFIG_SR_MN_EN_NONE)
+    recorder_sr_cfg.mn_language = ESP_MN_ENGLISH;
+#else
+    // recorder_sr_cfg.mn_language = "";
+#endif
+    recorder_sr_cfg.afe_cfg->aec_init = true;
 
-//     audio_rec_cfg_t cfg = AUDIO_RECORDER_DEFAULT_CFG();
-//     cfg.read = (recorder_data_read_t)&input_cb_for_afe;
-//     cfg.sr_handle = recorder_sr_create(&recorder_sr_cfg, &cfg.sr_iface);
-//     cfg.event_cb = rec_engine_cb;
-//     cfg.vad_off = 5000;
-//     recorder = audio_recorder_create(&cfg);
+    recorder_sr_cfg.afe_cfg->agc_init = true;
+    recorder_sr_cfg.afe_cfg->agc_mode = AFE_AGC_MODE_WAKENET;
+    recorder_sr_cfg.afe_cfg->afe_ns_mode = AFE_NS_MODE_WEBRTC;
+
+    audio_rec_cfg_t cfg = AUDIO_RECORDER_DEFAULT_CFG();
+    cfg.read = (recorder_data_read_t)&input_cb_for_afe;
+    cfg.sr_handle = recorder_sr_create(&recorder_sr_cfg, &cfg.sr_iface);
+    cfg.event_cb = rec_engine_cb;
+    cfg.vad_off = 5000;
+    recorder = audio_recorder_create(&cfg);
 }
 
 static void log_clear(void)
@@ -504,10 +549,9 @@ void my_audio_init(void)
 {
     log_clear();
     audio_board_init();
-    
+    es7210_adc_set_volume(GAIN_37_5DB);
     // 【已修】删除了 setup_player();
-    
     start_recorder();
-    rec_q = xQueueCreate(3, sizeof(int));
+     rec_q = xQueueCreate(3, sizeof(int));
     audio_thread_create(NULL, "read_task", voice_read_task, NULL, 4 * 1024, 5, true, 0);
 }

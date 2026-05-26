@@ -35,7 +35,7 @@ void app_main(void)
     v220_con_init();
     ntc_adc_init();
     wifi_init();
-    // my_audio_init();
+    my_audio_init();
 
     //修改测试代码
 
@@ -47,6 +47,7 @@ void app_main(void)
         uint32_t free_internal = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
         // 专门打印外部 PSRAM 的可用内存 (如果有的话)
         uint32_t free_psram = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+        
 
         ESP_LOGI(TAG, "Main loop running... Free Heap: %lu Bytes, Internal RAM: %lu Bytes, PSRAM: %lu Bytes", 
                  free_heap, free_internal, free_psram);

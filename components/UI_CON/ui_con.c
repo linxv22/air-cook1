@@ -163,7 +163,7 @@ static void preset_btn_event_cb(lv_event_t * e)
         lv_label_set_text_fmt(label_set_fan, "Fan: %d%%", (int)(current_config.fan_speed * 100));
         
         // 切换到详细控制界面
-        lv_scr_load_anim(scr_detail, LV_SCREEN_LOAD_ANIM_OVER_LEFT, 300, 0, false);
+        lv_screen_load(scr_detail);
     }
 }
 
@@ -171,7 +171,7 @@ static void preset_btn_event_cb(lv_event_t * e)
 static void back_btn_event_cb(lv_event_t * e)
 {
     if(lv_event_get_code(e) == LV_EVENT_CLICKED) {
-        lv_scr_load_anim(scr_main, LV_SCR_LOAD_ANIM_OVER_RIGHT, 300, 0, false);
+        lv_screen_load(scr_main);
     }
 }
 
@@ -185,7 +185,6 @@ static void close_qr_btn_cb(lv_event_t * e)
         ui_qrcode = NULL; // 面板被删，内部的二维码也一并被销毁了
     }
     
-
 }
 
 // 封装一个在屏幕中央弹出二维码界面的函数

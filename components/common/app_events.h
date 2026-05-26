@@ -58,6 +58,8 @@ typedef enum {
     EVENT_QR_CODE_READY,        // Wi-Fi DPP事件：QR Code准备好了，快去扫码连接吧
     EVENT_WIFI_CONNECTED,       // Wi-Fi DPP事件：成功连接Wi-Fi了
     EVENT_WIFI_DISCONNECTED,    // Wi-Fi事件：Wi-Fi断开了
+    //音频事件更新
+    EVENT_AUDIO_command,    // 音频事件：检测到说话了
 } air_cooker_event_id_t;
 
 typedef enum {
