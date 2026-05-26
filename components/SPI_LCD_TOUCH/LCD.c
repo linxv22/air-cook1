@@ -38,7 +38,7 @@
 #define LVGL_TASK_MAX_DELAY_MS 500
 #define LVGL_TASK_MIN_DELAY_MS 1000 / CONFIG_FREERTOS_HZ
 #define LVGL_TASK_STACK_SIZE   (16 * 1024)
-#define LVGL_TASK_PRIORITY     2
+#define LVGL_TASK_PRIORITY     6
 
 
 
@@ -113,12 +113,12 @@ static void lvgl_port_task(void *arg)
         _lock_acquire(&lvgl_api_lock);
         time_till_next_ms = lv_timer_handler();
         _lock_release(&lvgl_api_lock);
-        // in case of triggering a task watch dog time out
+        // 限制最小和最大延迟时间
         time_till_next_ms = MAX(time_till_next_ms, LVGL_TASK_MIN_DELAY_MS);
-        // in case of lvgl display not ready yet
         time_till_next_ms = MIN(time_till_next_ms, LVGL_TASK_MAX_DELAY_MS);
-        usleep(1000 * time_till_next_ms);
-
+        // 使用 FreeRTOS 原生延时函数，安全地将毫秒转换为系统的 Tick 数
+        vTaskDelay(pdMS_TO_TICKS(time_till_next_ms));
+        // printf("[LVGL] Task running... Next tick in %lu ms\n", time_till_next_ms);
     }
 }
 

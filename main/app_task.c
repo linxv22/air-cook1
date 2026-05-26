@@ -9,6 +9,7 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "my_audio.h"
 
 static const char *TAG = "app_task";
 extern _lock_t lvgl_api_lock;
@@ -49,7 +50,7 @@ void app_event_handler(void* handler_arg, esp_event_base_t base, int32_t id, voi
             break;
         }
         case EVENT_TEMP_UPDATED: {
-            ui_up_temp(ntc_adc_read_temperature());
+            ui_up_temp(ntc_adc_read_temperature(), aircook_gettime());
             break;
         }
         case EVENT_QR_CODE_READY: {
@@ -64,6 +65,7 @@ void app_event_handler(void* handler_arg, esp_event_base_t base, int32_t id, voi
             WIFI_STATE = WIFI_STATE_CONNECTED;
             ui_wifi_up(WIFI_STATE);
             time_sntp_init();
+            websocket_clint_init();
             break;
         }
         case EVENT_WIFI_DISCONNECTED:{
@@ -86,7 +88,7 @@ void app_event_init (void)
         .task_name = "my_event_task", 
         .task_priority = 5,
         .task_stack_size = 4096,
-        .task_core_id = tskNO_AFFINITY
+        .task_core_id = tskNO_AFFINITY,
     };
 
     ESP_ERROR_CHECK(esp_event_loop_create(&loop_args, &loop_handle));

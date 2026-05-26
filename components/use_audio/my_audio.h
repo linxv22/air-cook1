@@ -4,8 +4,10 @@
 
 
 
+
 void my_audio_init(void);
 
+void websocket_clint_init(void);
 
 
 

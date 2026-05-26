@@ -238,7 +238,7 @@ void v220_con_init(void)
         "cook_control", 
         2048, 
         NULL, 
-        10, // 0-25
+        8, // 0-25
         NULL, 
         1 // 挂在 Core 1，分离网络带来的干扰
     );

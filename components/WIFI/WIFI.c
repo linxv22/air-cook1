@@ -159,7 +159,7 @@ static esp_err_t dpp_enrollee_bootstrap(void)
     ret = esp_supp_dpp_bootstrap_gen(DPP_LISTEN_CHANNEL_LIST, DPP_BOOTSTRAP_QR_CODE,
                                      key, DPP_DEVICE_INFO);
 
-    
+
 
     if (key)
         free(key);

@@ -57,6 +57,7 @@
 #include "my_audio.h"
 
 #include "lwip/sockets.h"
+#include "esp_websocket_client.h"
 
 // static const char *TAG = "my_audio";
 
@@ -249,112 +250,15 @@ static audio_element_handle_t raw_read      = NULL;
 static QueueHandle_t          rec_q         = NULL;
 static bool                   voice_reading = false;
 
-// 【已删】删除了整个 setup_player() 函数
-
-// 电脑的实际 IP 地址
-#define PC_IP_ADDR "192.168.199.187"  // 请修改为电脑的局域网 IP
-#define PC_TCP_PORT 12345
-
-// static void voice_read_task(void *args)
-// {
-//     const int buf_len = 2 * 1024;
-//     uint8_t *voiceData = audio_calloc(1, buf_len);
-//     int sock = -1;
-
-//     // 1. 创建 TCP socket
-//     sock = socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
-//     if (sock < 0) {
-//         printf("[TCP] 无法创建 socket, errno: %d\n", errno);
-//         free(voiceData);
-//         vTaskDelete(NULL);
-//         return;
-//     }
-
-//     struct sockaddr_in dest_addr;
-//     dest_addr.sin_addr.s_addr = inet_addr(PC_IP_ADDR);
-//     dest_addr.sin_family = AF_INET;
-//     dest_addr.sin_port = htons(PC_TCP_PORT);
-
-//     printf("[TCP] 正在尝试连接电脑 %s:%d ...\n", PC_IP_ADDR, PC_TCP_PORT);
-
-//     // 2. 连接到电脑的 TCP 服务端
-//     if (connect(sock, (struct sockaddr *)&dest_addr, sizeof(dest_addr)) != 0) {
-//         printf("\n❌ [TCP] 连接电脑失败! 请排查以下原因：\n");
-//         printf("   1. 电脑上的 Python 接收脚本是否已经先启动运行了？\n");
-//         printf("   2. ESP32 填写的电脑 IP (%s) 是否正确？\n", PC_IP_ADDR);
-//         printf("   3. 电脑的防火墙是否关闭？（Windows 防火墙经常拦截 TCP 入站连接）\n");
-//         printf("   4. ESP32 是否和电脑处于同一个 Wi-Fi 局域网下？\n");
-//         printf("   (errno: %d)\n\n", errno);
-        
-//         close(sock);
-//         free(voiceData);
-//         vTaskDelete(NULL);
-//         return;
-//     }
-
-//     printf("✔ [TCP] 成功连接上电脑！开始实时发送原始音频...\n");
-
-//     while (true) {
-//         // 直接读取最底层的原始音频流（绕过 Recorder 的 speeching 限制）
-//         int ret = raw_stream_read(raw_read, (char *)voiceData, buf_len);
-       
-//         if (ret > 0) {
-//             // 3. 使用 send 函数发送数据
-//             int sent = send(sock, voiceData, ret, 0);
-//             if (sent < 0) {
-//                 printf("[TCP] 发送失败 (连接可能已断开), errno: %d\n", errno);
-//                 break;
-//             }
-//         } else {
-//             // 没有读到数据时，稍作延时
-//             vTaskDelay(pdMS_TO_TICKS(10));
-//         }
-//     }
-
-//     printf("[TCP] 任务结束，正在关闭 Socket...\n");
-//     close(sock);
-//     free(voiceData);
-//     vTaskDelete(NULL);
-// }
+extern esp_websocket_client_handle_t client;
 
 static void voice_read_task(void *args)
 {
     const int buf_len = 2 * 1024;
-    uint8_t *voiceData = audio_calloc(1, buf_len);
+    char *voiceData = audio_calloc(1, buf_len);
     int msg = 0;
     TickType_t delay = portMAX_DELAY;    
-    int sock = -1;
-    // 1. 创建 TCP socket
-    sock = socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
-    if (sock < 0) {
-        printf("[TCP] 无法创建 socket, errno: %d\n", errno);
-        free(voiceData);
-        vTaskDelete(NULL);
-        return;
-    }
-    struct sockaddr_in dest_addr;
-    dest_addr.sin_addr.s_addr = inet_addr(PC_IP_ADDR);
-    dest_addr.sin_family = AF_INET;
-    dest_addr.sin_port = htons(PC_TCP_PORT);
 
-    printf("[TCP] 正在尝试连接电脑 %s:%d ...\n", PC_IP_ADDR, PC_TCP_PORT);
-
-    // 2. 连接到电脑的 TCP 服务端
-    if (connect(sock, (struct sockaddr *)&dest_addr, sizeof(dest_addr)) != 0) {
-        printf("\n❌ [TCP] 连接电脑失败! 请排查以下原因：\n");
-        printf("   1. 电脑上的 Python 接收脚本是否已经先启动运行了？\n");
-        printf("   2. ESP32 填写的电脑 IP (%s) 是否正确？\n", PC_IP_ADDR);
-        printf("   3. 电脑的防火墙是否关闭？（Windows 防火墙经常拦截 TCP 入站连接）\n");
-        printf("   4. ESP32 是否和电脑处于同一个 Wi-Fi 局域网下？\n");
-        printf("   (errno: %d)\n\n", errno);
-        
-        close(sock);
-        free(voiceData);
-        vTaskDelete(NULL);
-        return;
-    }
-
-    printf("✔ [TCP] 成功连接上电脑！开始实时发送原始音频...\n");
     while (true) {
         if (xQueueReceive(rec_q, &msg, delay) == pdTRUE) {
             switch (msg) {
@@ -389,12 +293,8 @@ static void voice_read_task(void *args)
                 voice_reading = false;
             }
             else {
-                // 3. 使用 send 函数发送数据
-                int sent = send(sock, voiceData, ret, 0);
-                if (sent < 0) {
-                    printf("[TCP] 发送失败 (连接可能已断开), errno: %d\n", errno);
-                    break;
-                }
+                esp_websocket_client_send_bin(client,(const char *)voiceData,ret,portMAX_DELAY);
+                printf("[WebSocket] 已发送 %d 字节的音频数据\n", ret);
             }
         }
     }
@@ -524,7 +424,7 @@ static void start_recorder()
     cfg.read = (recorder_data_read_t)&input_cb_for_afe;
     cfg.sr_handle = recorder_sr_create(&recorder_sr_cfg, &cfg.sr_iface);
     cfg.event_cb = rec_engine_cb;
-    cfg.vad_off = 5000;
+    cfg.vad_off = 2000;
     recorder = audio_recorder_create(&cfg);
 }
 
@@ -541,7 +441,6 @@ static void log_clear(void)
     esp_log_level_set("I2S_STREAM", ESP_LOG_ERROR);
     esp_log_level_set("RSP_FILTER", ESP_LOG_ERROR);
     esp_log_level_set("AUDIO_EVT", ESP_LOG_ERROR);
-    
     // 【已删】删除了音频播放相关的日志设置
 }
 
@@ -550,7 +449,7 @@ void my_audio_init(void)
     log_clear();
     audio_board_init();
     es7210_adc_set_volume(GAIN_37_5DB);
-    // 【已修】删除了 setup_player();
+    //setup_player();
     start_recorder();
      rec_q = xQueueCreate(3, sizeof(int));
     audio_thread_create(NULL, "read_task", voice_read_task, NULL, 4 * 1024, 5, true, 0);

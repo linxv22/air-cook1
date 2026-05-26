@@ -19,7 +19,7 @@ static cook_config_t current_config = {
     .time_s = 15 * 60,
     .fan_speed = fan_mid
 };
-static wind_state_t current_wind_state = wind_main; // 当前风扇状态，默认主页面
+static wind_state_t current_wind_state = wind_main; // 当前窗口状态，默认主页面
 static const char * qr_url_buffer = NULL; // 替换原来的 char 数组
 
 typedef enum {
@@ -41,6 +41,7 @@ typedef enum {
 /// ============ 界面与控件句柄 ============ 
 lv_obj_t * scr_main;
 lv_obj_t * scr_detail;
+
 lv_obj_t * time_label; // 顶层状态栏的当前时间
 
 // (保持你原有的这些句柄不变)
@@ -138,6 +139,7 @@ static void btn_event_cb(lv_event_t * e)
 // 主界面食物模式点击事件
 static void preset_btn_event_cb(lv_event_t * e)
 {
+    if (lv_screen_active() != scr_main) return;
     lv_event_code_t code = lv_event_get_code(e);
     // 从 user_data 中恢复枚举值，使用 uintptr_t 防止 64位系统强转警告
     btn_id_t btn_id = (btn_id_t)(uintptr_t)lv_event_get_user_data(e); 
@@ -170,6 +172,7 @@ static void preset_btn_event_cb(lv_event_t * e)
 // “返回主页”按钮回调
 static void back_btn_event_cb(lv_event_t * e)
 {
+    if (lv_screen_active() != scr_detail) return;
     if(lv_event_get_code(e) == LV_EVENT_CLICKED) {
         lv_screen_load(scr_main);
     }
@@ -191,36 +194,36 @@ static void close_qr_btn_cb(lv_event_t * e)
 static void show_qrcode_panel(void)
 {
     //如果面板已经存在，先清理以防重叠
-     if (qr_panel != NULL) {
-         lv_obj_delete(qr_panel);
-         qr_panel = NULL;
-     }
+    if (qr_panel != NULL) {
+        lv_obj_delete(qr_panel);
+        qr_panel = NULL;
+    }
      
-     qr_url_buffer = wifi_get_dpp_uri(); // 确保 URI 已经被 wifi 组件准备好了（如果还没准备好，这个函数会返回空字符串）
-     lv_obj_t * scr = lv_screen_active();
+    qr_url_buffer = wifi_get_dpp_uri(); // 确保 URI 已经被 wifi 组件准备好了（如果还没准备好，这个函数会返回空字符串）
+    lv_obj_t * scr = lv_screen_active();
     
     //  1. 创建背景容器面板
-     qr_panel = lv_obj_create(scr);
-     lv_obj_set_size(qr_panel, 200, 200); // 调整面板大小适应文字和按键
-     lv_obj_center(qr_panel);
-     lv_obj_set_style_bg_color(qr_panel, lv_color_hex(0xFFFFFF), 0);
+    qr_panel = lv_obj_create(scr);
+    lv_obj_set_size(qr_panel, 200, 200); // 调整面板大小适应文字和按键
+    lv_obj_center(qr_panel);
+    lv_obj_set_style_bg_color(qr_panel, lv_color_hex(0xFFFFFF), 0);
     
-     lv_obj_clear_flag(qr_panel, LV_OBJ_FLAG_SCROLLABLE); 
-     // 2. 在右上角创建带有“X”符号的关闭按钮
-     lv_obj_t * btn_close = lv_button_create(qr_panel);
-     lv_obj_set_size(btn_close, 35, 35);
-     lv_obj_align(btn_close, LV_ALIGN_TOP_RIGHT, 10, -10);
-     lv_obj_set_style_bg_color(btn_close, lv_color_hex(0xFF0000), 0); // 红色关闭建
-     lv_obj_add_event_cb(btn_close, close_qr_btn_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_clear_flag(qr_panel, LV_OBJ_FLAG_SCROLLABLE); 
+    // 2. 在右上角创建带有“X”符号的关闭按钮
+    lv_obj_t * btn_close = lv_button_create(qr_panel);
+    lv_obj_set_size(btn_close, 35, 35);
+    lv_obj_align(btn_close, LV_ALIGN_TOP_RIGHT, 10, -10);
+    lv_obj_set_style_bg_color(btn_close, lv_color_hex(0xFF0000), 0); // 红色关闭建
+    lv_obj_add_event_cb(btn_close, close_qr_btn_cb, LV_EVENT_CLICKED, NULL);
     
-     lv_obj_t * label_close = lv_label_create(btn_close);
-     lv_label_set_text(label_close, LV_SYMBOL_CLOSE);
-     lv_obj_center(label_close);
+    lv_obj_t * label_close = lv_label_create(btn_close);
+    lv_label_set_text(label_close, LV_SYMBOL_CLOSE);
+    lv_obj_center(label_close);
 
-     // 3. 提示文字（可选）
-     lv_obj_t * title = lv_label_create(qr_panel);
-     lv_label_set_text(title, "Scan to Connect");
-     lv_obj_align(title, LV_ALIGN_TOP_LEFT, -5, 0);
+    // 3. 提示文字（可选）
+    lv_obj_t * title = lv_label_create(qr_panel);
+    lv_label_set_text(title, "Scan to Connect");
+    lv_obj_align(title, LV_ALIGN_TOP_LEFT, -5, 0);
 
     // 4. 创建二维码
     ui_qrcode = lv_qrcode_create(qr_panel); 
@@ -233,10 +236,10 @@ static void show_qrcode_panel(void)
 // 顶部 Wi-Fi 图标被点击的回调
 static void wifi_icon_click_cb(lv_event_t * e)
 {
-     //若当前未连接 Wi-Fi，且配网链接不为空，则再次呼出面板
-     if (WIFI_STATE != WIFI_STATE_CONNECTED) {
+    //若当前未连接 Wi-Fi，且配网链接不为空，则再次呼出面板
+    if (WIFI_STATE != WIFI_STATE_CONNECTED) {
         show_qrcode_panel();
-     }
+    }
 }
 
 // 辅助创建按钮包装器
@@ -405,19 +408,26 @@ void ui_wifi_up(WIFI_state_t state)
 }
 
 // 提供一个接口让 app_task.c 可以更新当前温度显示
-void ui_up_temp(float temp)
+void ui_up_temp(float temp, int rem_time_s)
 {
     time_t now;
     struct tm timeinfo;
     char strftime_buf[16];
     time(&now);
-    // 转换为本地时间（需要你在系统中提前通过 setenv 和 tzset 设置好正确的时区，以及使用 SNTP 同步时间）
     localtime_r(&now, &timeinfo);
-    // 格式化时间为 "HH:MM"，例如 "14:30"
     strftime(strftime_buf, sizeof(strftime_buf), "%H:%M", &timeinfo);
-    // 这里的 current_config.temperature 应该在 app_task.c 收到温度更新事件时被更新了
+    
     _lock_acquire(&lvgl_api_lock);
-    lv_label_set_text_fmt(Tem_label, "Cur Tem: #006aff %.1f °C#", temp);
-    lv_label_set_text(time_label, strftime_buf); // 同时更新顶部的时间显示
+    
+    // ++ 必须做这步防御性判断！如果详情页都没有显示出来，就不应该去刷新详情页里的 Label！++
+    if (lv_screen_active() == scr_detail && Tem_label != NULL) {
+        lv_label_set_text_fmt(Tem_label, "Cur Tem: #006aff %.1f °C#", temp);
+        lv_label_set_text_fmt(Remain_time_label, "Rem: %02d:%02d", rem_time_s / 60, rem_time_s % 60);
+    }
+    
+    if (time_label != NULL) {
+        lv_label_set_text(time_label, strftime_buf);
+    }
+    
     _lock_release(&lvgl_api_lock);
 }

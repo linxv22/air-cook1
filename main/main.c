@@ -36,7 +36,7 @@ void app_main(void)
     ntc_adc_init();
     wifi_init();
     my_audio_init();
-
+    
     //修改测试代码
 
     while (1) {
