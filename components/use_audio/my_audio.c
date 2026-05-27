@@ -45,7 +45,6 @@
 #include "filter_resample.h"
 #include "i2s_stream.h"
 #include "mp3_decoder.h"
-#include "periph_adc_button.h"
 #include "raw_stream.h"
 #include "recorder_encoder.h"
 #include "recorder_sr.h"
@@ -244,13 +243,14 @@ enum _rec_msg_id {
 
 static char *TAG = "wwe_example";
 
-// 【已删】删除了 player 句柄
+esp_audio_handle_t     player_handle = NULL;
 static audio_rec_handle_t     recorder      = NULL;
 static audio_element_handle_t raw_read      = NULL;
 static QueueHandle_t          rec_q         = NULL;
 static bool                   voice_reading = false;
 
 extern esp_websocket_client_handle_t client;
+extern audio_element_handle_t raw_read_el;
 
 static void voice_read_task(void *args)
 {
@@ -294,7 +294,7 @@ static void voice_read_task(void *args)
             }
             else {
                 esp_websocket_client_send_bin(client,(const char *)voiceData,ret,portMAX_DELAY);
-                printf("[WebSocket] 已发送 %d 字节的音频数据\n", ret);
+                // printf("[WebSocket] 已发送 %d 字节的音频数据\n", ret);
             }
         }
     }
@@ -376,7 +376,7 @@ static void start_recorder()
     rsp_filter_cfg_t rsp_cfg = DEFAULT_RESAMPLE_FILTER_CONFIG();
     rsp_cfg.src_rate = 48000;
     rsp_cfg.dest_rate = 16000;
-     rsp_cfg.mode = RESAMPLE_UNCROSS_MODE;
+    rsp_cfg.mode = RESAMPLE_UNCROSS_MODE;
     rsp_cfg.src_ch = 4;
     rsp_cfg.dest_ch = 4;
     rsp_cfg.max_indata_bytes = 1024;
@@ -424,7 +424,7 @@ static void start_recorder()
     cfg.read = (recorder_data_read_t)&input_cb_for_afe;
     cfg.sr_handle = recorder_sr_create(&recorder_sr_cfg, &cfg.sr_iface);
     cfg.event_cb = rec_engine_cb;
-    cfg.vad_off = 2000;
+    cfg.vad_off = 1000;
     recorder = audio_recorder_create(&cfg);
 }
 
@@ -447,10 +447,89 @@ static void log_clear(void)
 void my_audio_init(void)
 {
     log_clear();
-    audio_board_init();
+    audio_pipeline_handle_t pipeline;
+    audio_element_handle_t i2s_stream_writer;
+    audio_board_handle_t board_handle = audio_board_init();
+    
+    // audio_hal_ctrl_codec(board_handle->audio_hal, AUDIO_HAL_CODEC_MODE_BOTH, AUDIO_HAL_CTRL_START);
+    // int player_volume = 100; 
+    // audio_hal_set_volume(board_handle->audio_hal, player_volume);
+
+    // // ---------------- [ 2 ] 创建并初始化管道 ----------------
+    // ESP_LOGI(TAG, "[ 2 ] Create audio pipeline");
+    // audio_pipeline_cfg_t pipeline_cfg = DEFAULT_AUDIO_PIPELINE_CONFIG();
+    // pipeline = audio_pipeline_init(&pipeline_cfg);
+    // mem_assert(pipeline);
+
+    // // ---------------- [ 2.2 ] 创建 I2S 输出流 ----------------
+    // ESP_LOGI(TAG, "[2.2] Create i2s stream");
+    // i2s_stream_cfg_t i2s_cfg = I2S_STREAM_CFG_DEFAULT();
+    // i2s_stream_writer = i2s_stream_init(&i2s_cfg);
+    // audio_element_set_music_info(i2s_stream_writer, 16000, 1, 16); 
+    // // ---------------- [ 2.3 ] 创建 RAW 流读取器 ----------------
+    // raw_stream_cfg_t raw_cfg = RAW_STREAM_CFG_DEFAULT();
+    // raw_cfg.type = AUDIO_STREAM_WRITER; // 关键：作为数据的源头
+    // // 强烈建议在 PSRAM 中创建其内部的 RingBuffer 以抵抗网络抖动
+    // raw_cfg.out_rb_size = 64 * 1024; // (如果有配置宏则开启，或者在 menuconfig 里面统一开启 ADF PSRAM Ringbuffer 选项)
+    // raw_read_el = raw_stream_init(&raw_cfg);
+
+    // // ---------------- [ 2.3 ] 注册与链接 ----------------
+    // ESP_LOGI(TAG, "[2.3] Register elements to pipeline");
+    // audio_pipeline_register(pipeline, raw_read_el, "raw");
+    // audio_pipeline_register(pipeline, i2s_stream_writer, "i2s");
+    // const char *link_tag[2] = {"raw", "i2s"};
+    // audio_pipeline_link(pipeline, &link_tag[0], 2);
+    // // ---------------- [ 3 ] 启动音频播放 ----------------
+    // ESP_LOGI(TAG, "[ 3 ] Start audio_pipeline");
+    // audio_pipeline_run(pipeline);
+
+    // ----------- 1. 配置硬件为双工模式 (BOTH) -----------
+    audio_hal_ctrl_codec(board_handle->audio_hal, AUDIO_HAL_CODEC_MODE_BOTH, AUDIO_HAL_CTRL_START);
+    audio_hal_set_volume(board_handle->audio_hal, 100);
+    
+    // ----------- 3. 建立你的独立播放流水线 -----------
+    audio_pipeline_cfg_t pipeline_cfg = DEFAULT_AUDIO_PIPELINE_CONFIG();
+    pipeline = audio_pipeline_init(&pipeline_cfg);
+
+    // [第一节管道]：RAW 输入池 (从 WebSocket 接收数据)
+    raw_stream_cfg_t raw_cfg = RAW_STREAM_CFG_DEFAULT();
+    raw_cfg.type = AUDIO_STREAM_READER;   // 作为管线的源头
+    raw_cfg.out_rb_size = 64 * 1024;      // 开辟 64K 的大胃口防止网络卡顿
+    raw_read_el = raw_stream_init(&raw_cfg);
+
+    // [第二节管道]：升频转换器 (16000Hz 转 48000Hz)
+    rsp_filter_cfg_t rsp_cfg = DEFAULT_RESAMPLE_FILTER_CONFIG();
+    rsp_cfg.src_rate = 16000;             // WebSocket 送来的是 16K
+    rsp_cfg.src_ch = 1;
+    rsp_cfg.src_bits = 16;
+    rsp_cfg.dest_rate = 48000;            // 底层硬件要求 48K（必须和录音保持一致！）
+    rsp_cfg.dest_ch = 2;
+    rsp_cfg.dest_bits = 16;
+    audio_element_handle_t filter_el = rsp_filter_init(&rsp_cfg);
+
+    // [第三节管道]：I2S 硬件输出 
+    i2s_stream_cfg_t i2s_cfg = I2S_STREAM_CFG_DEFAULT_WITH_PARA(CODEC_ADC_I2S_PORT, 48000, 32, AUDIO_STREAM_WRITER);
+    i2s_cfg.need_expand = true;           // 【救命神键】：将 16位 音频自动拉伸到 32位，完美匹配底层硬件！
+    i2s_cfg.expand_src_bits = 16;
+    i2s_stream_writer = i2s_stream_init(&i2s_cfg);
+
+    // ----------- 4. 注册与链接 -----------
+    audio_pipeline_register(pipeline, raw_read_el, "raw");
+    audio_pipeline_register(pipeline, filter_el, "filter");
+    audio_pipeline_register(pipeline, i2s_stream_writer, "i2s");
+
+    // 把它们串起来：raw -> filter -> i2s
+    const char *link_tag[3] = {"raw", "filter", "i2s"};
+    audio_pipeline_link(pipeline, &link_tag[0], 3);
+
+    // ----------- 5. 运行流水线 -----------
+    // 启动后它会自动停在此处挂起并侦听 raw_read_el，不占用 CPU，等待数据降临！
+    audio_pipeline_run(pipeline);
+    
     es7210_adc_set_volume(GAIN_37_5DB);
-    //setup_player();
     start_recorder();
-     rec_q = xQueueCreate(3, sizeof(int));
+    
+    rec_q = xQueueCreate(3, sizeof(int));
     audio_thread_create(NULL, "read_task", voice_read_task, NULL, 4 * 1024, 5, true, 0);
+   
 }

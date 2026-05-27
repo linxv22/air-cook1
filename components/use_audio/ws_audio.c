@@ -3,12 +3,19 @@
 #include "esp_websocket_client.h"
 #include "esp_log.h"
 
+#include "raw_stream.h"
+#include "audio_element.h"
+#include "esp_audio.h"
 
-#define WEBSOCKET_URI "ws://192.168.186.157"
+#include "app_events.h"
+
+#define WEBSOCKET_URI "ws://192.168.94.157"
 #define WEBSOCKET_PORT 8765
 
 
+
 esp_websocket_client_handle_t client;
+audio_element_handle_t raw_read_el;
 
 
 static char *TAG = "web_socket";
@@ -40,10 +47,8 @@ static void websocket_event_handler(void *handler_args, esp_event_base_t base, i
         }
         break;
     case WEBSOCKET_EVENT_DATA:
-        ESP_LOGI(TAG, "WEBSOCKET_EVENT_DATA");
-        ESP_LOGI(TAG, "Received opcode=%d", data->op_code);
         if (data->op_code == 0x2) { // Opcode 0x2 indicates binary data
-            ESP_LOG_BUFFER_HEX("Received binary data", data->data_ptr, data->data_len);
+            raw_stream_write(raw_read_el, (char *)data->data_ptr, data->data_len);
         } else if (data->op_code == 0x08 && data->data_len == 2) {
             ESP_LOGW(TAG, "Received closed message with code=%d", 256 * data->data_ptr[0] + data->data_ptr[1]);
         } else {
@@ -51,7 +56,7 @@ static void websocket_event_handler(void *handler_args, esp_event_base_t base, i
         }
 
         // If received data contains json structure it succeed to parse
-        if (data->data_ptr != NULL && data->data_len > 0) {
+        if (data->op_code == 0x1 && data->data_ptr != NULL && data->data_len > 0) {
             cJSON *root = cJSON_Parse(data->data_ptr);
             if (root) {
                 // Log the full JSON for debugging
