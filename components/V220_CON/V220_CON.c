@@ -331,3 +331,8 @@ static void V220_FAN_CON(bool con, uint32_t speed)
         gpio_intr_disable(ZERO_CROSS);
     }
 }
+
+cook_state_t aircook_getstate(void)
+{
+    return current_config.state;
+}

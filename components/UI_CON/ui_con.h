@@ -9,6 +9,7 @@ void ui_start(void);
 
 void ui_wifi_up(WIFI_state_t state);
 void ui_up_temp(float temp, int rem_time_s);
+void ui_mic_state_update(mic_state_t state);
 
 
 #endif // ui_con.h

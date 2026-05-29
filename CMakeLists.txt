@@ -28,8 +28,8 @@ endfunction()
 
 
 # Flash the custom partition named `flash_tone`.
-set(partition flash_tone)
-idf_build_get_property(project_dir PROJECT_DIR)
-set(image_file ${project_dir}/tone/audio_tone.bin)
-partition_table_get_partition_info(offset "--partition-name ${partition}" "offset")
-esptool_py_flash_customize_image(flash "${partition}" "${offset}" "${image_file}")
+#set(partition flash_tone)
+#idf_build_get_property(project_dir PROJECT_DIR)
+#set(image_file ${project_dir}/tone/audio_tone.bin)
+#partition_table_get_partition_info(offset "--partition-name ${partition}" "offset")
+#esptool_py_flash_customize_image(flash "${partition}" "${offset}" "${image_file}")

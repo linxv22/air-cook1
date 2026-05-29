@@ -27,16 +27,21 @@ void app_event_handler(void* handler_arg, esp_event_base_t base, int32_t id, voi
 {
     switch (id) {
         case EVENT_CMD_aircook: {
-           cook_config_t *cfg = (cook_config_t *)event_data;
-            aircook_start(cfg);
-            ESP_LOGI(TAG, "Logic: Cook Started! Temp: %.1f C, Time: %ld s, Fan Enum: %d", 
-                     cfg->temperature, cfg->time_s, cfg->fan_speed);
+            cook_state_t current_state = aircook_getstate(); // 先获取状态，看看能不能开始烹饪
+            if (current_state == cook_stopped) {
+                cook_config_t *cfg = (cook_config_t *)event_data;
+                aircook_start(cfg);
+                ESP_LOGI(TAG, "Logic: Cook Started! Temp: %.1f C, Time: %ld s, Fan Enum: %d", 
+                         cfg->temperature, cfg->time_s, cfg->fan_speed);
+            } else {
+                ESP_LOGW(TAG, "Logic: Cannot start cooking, current state is not stopped!");
+            }
             break;
         }
         case EVENT_CMD_STOP: {
            aircook_stop();
            ESP_LOGI(TAG, "Logic: Cook Stopped!");
-            break;
+           break;
         }
         case EVENT_CMD_SET_TEMP: {
             float *temp = (float *)event_data;
@@ -63,6 +68,7 @@ void app_event_handler(void* handler_arg, esp_event_base_t base, int32_t id, voi
         case EVENT_WIFI_CONNECTED: {
             ESP_LOGI(TAG, "Logic: Wi-Fi connected successfully!");
             WIFI_STATE = WIFI_STATE_CONNECTED;
+            dpp_deinit();
             ui_wifi_up(WIFI_STATE);
             time_sntp_init();
             websocket_clint_init();
@@ -70,10 +76,21 @@ void app_event_handler(void* handler_arg, esp_event_base_t base, int32_t id, voi
         }
         case EVENT_WIFI_DISCONNECTED:{
             WIFI_STATE = WIFI_STATE_DISCONNECTED;
+            dpp_enrollee_bootstrap(); // 连接断开时自动重启 DPP 配网流程
             ui_wifi_up(WIFI_STATE);
             ESP_LOGI(TAG, "Logic: Wi-Fi disconnected!");
             break;
         }
+        case EVENT_AUDIO_CMD: {
+            ui_mic_state_update( *(mic_state_t *)event_data);
+            break;
+        }
+         case EVENT_CLOUD_CMD: {
+            // 这里可以根据 event_data 的内容来区分不同的云端命令，并执行相应的操作
+            ESP_LOGI(TAG, "Logic: Cloud command received!");
+            break;
+        }
+
         default:
             ESP_LOGW(TAG, "Logic: Unhandled event ID: %d", id);
             break;
@@ -87,7 +104,7 @@ void app_event_init (void)
         .queue_size = 10,
         .task_name = "my_event_task", 
         .task_priority = 5,
-        .task_stack_size = 4096,
+        .task_stack_size = 4096 ,
         .task_core_id = tskNO_AFFINITY,
     };
 
@@ -95,4 +112,3 @@ void app_event_init (void)
     ESP_ERROR_CHECK(esp_event_handler_register_with(
     loop_handle, AIR_COOKER_EVENTS, ESP_EVENT_ANY_ID, app_event_handler, NULL));
 }
-

@@ -2,7 +2,7 @@
 
 #include "esp_event.h"
 
-ESP_EVENT_DECLARE_BASE(AIR_COOKER_EVENTS);
+
 
 // LCD引脚定义
 #define PIN_BK_LIGHT GPIO_NUM_41
@@ -43,6 +43,8 @@ ESP_EVENT_DECLARE_BASE(AIR_COOKER_EVENTS);
 #define ESP0_SD_CMD GPIO_NUM_7
 #define ESP0_SD_DAT0 GPIO_NUM_4
 
+// 事件定义
+ESP_EVENT_DECLARE_BASE(AIR_COOKER_EVENTS);
 extern esp_event_loop_handle_t loop_handle;
 
 // 定义所有的事件 ID 
@@ -64,11 +66,13 @@ typedef enum {
     EVENT_CLOUD_CMD, // 云端事件：成功连接云端了
 } air_cooker_event_id_t;
 
+//显示屏界面状态
 typedef enum {
     wind_main,   //ui主界面
     wind_working,  //ui烹饪界面
 }wind_state_t;
 
+//风扇速度枚举
 typedef enum {
     fan_high = 0, 
     fan_mid,
@@ -89,3 +93,8 @@ typedef enum{
     WIFI_STATE_DISCONNECTED,   // 断开连接（正在后台自动重连）
     WIFI_STATE_PROVISIONING    // 处于配网模式（正在等待扫码）
 } WIFI_state_t;
+
+typedef enum {
+MIC_STATE_LISTENING = 0, // 麦克风空闲，未检测到说话
+MIC_STATE_SPEAKING, // 麦克风正在监听，检测到说话但未识别完成
+}mic_state_t;

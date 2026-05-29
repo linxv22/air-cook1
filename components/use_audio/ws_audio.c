@@ -9,7 +9,7 @@
 
 #include "app_events.h"
 
-#define WEBSOCKET_URI "ws://192.168.94.157"
+#define WEBSOCKET_URI "ws://192.168.57.157"
 #define WEBSOCKET_PORT 8765
 
 
@@ -39,22 +39,19 @@ static void websocket_event_handler(void *handler_args, esp_event_base_t base, i
         break;
     case WEBSOCKET_EVENT_DISCONNECTED:
         ESP_LOGI(TAG, "WEBSOCKET_EVENT_DISCONNECTED");
-        log_error_if_nonzero("HTTP status code",  data->error_handle.esp_ws_handshake_status_code);
-        if (data->error_handle.error_type == WEBSOCKET_ERROR_TYPE_TCP_TRANSPORT) {
-            log_error_if_nonzero("reported from esp-tls", data->error_handle.esp_tls_last_esp_err);
-            log_error_if_nonzero("reported from tls stack", data->error_handle.esp_tls_stack_err);
-            log_error_if_nonzero("captured as transport's socket errno",  data->error_handle.esp_transport_sock_errno);
-        }
+        // log_error_if_nonzero("HTTP status code",  data->error_handle.esp_ws_handshake_status_code);
+        // if (data->error_handle.error_type == WEBSOCKET_ERROR_TYPE_TCP_TRANSPORT) {
+        //     log_error_if_nonzero("reported from esp-tls", data->error_handle.esp_tls_last_esp_err);
+        //     log_error_if_nonzero("reported from tls stack", data->error_handle.esp_tls_stack_err);
+        //     log_error_if_nonzero("captured as transport's socket errno",  data->error_handle.esp_transport_sock_errno);
+        // }
         break;
     case WEBSOCKET_EVENT_DATA:
         if (data->op_code == 0x2) { // Opcode 0x2 indicates binary data
             raw_stream_write(raw_read_el, (char *)data->data_ptr, data->data_len);
         } else if (data->op_code == 0x08 && data->data_len == 2) {
             ESP_LOGW(TAG, "Received closed message with code=%d", 256 * data->data_ptr[0] + data->data_ptr[1]);
-        } else {
-            ESP_LOGW(TAG, "Received=%.*s\n\n", data->data_len, (char *)data->data_ptr);
-        }
-
+        } 
         // If received data contains json structure it succeed to parse
         if (data->op_code == 0x1 && data->data_ptr != NULL && data->data_len > 0) {
             cJSON *root = cJSON_Parse(data->data_ptr);

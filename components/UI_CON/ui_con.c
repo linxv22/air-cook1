@@ -53,7 +53,7 @@ lv_obj_t * label_set_fan;
 lv_obj_t * ui_qrcode = NULL;  
 lv_obj_t * wifi_icon = NULL;
 lv_obj_t * qr_panel = NULL;   
-
+lv_obj_t * mic_icon = NULL;
 
 // ============ LVGL 事件回调函数声明 ============
 // ================= UI 与 按键回调 =================
@@ -287,6 +287,12 @@ void ui_start(void)
     lv_obj_set_ext_click_area(wifi_icon, 20); 
     lv_obj_add_event_cb(wifi_icon, wifi_icon_click_cb, LV_EVENT_CLICKED, NULL);
 
+     mic_icon = lv_label_create(top_layer);
+    lv_label_set_text(mic_icon, LV_SYMBOL_AUDIO);  // 使用 LVGL 自带在音频/麦克风符号
+    // 根据需求隐藏或者显示，如果不激活时想让它不可见可以调 hidden 标志
+    // lv_obj_add_flag(mic_icon, LV_OBJ_FLAG_HIDDEN); 
+    lv_obj_align_to(mic_icon, wifi_icon, LV_ALIGN_OUT_LEFT_MID, -10, 0); // 在 Wifi 图标左边 10 像素
+
     // =========== 3. 绘制主界面 (scr_main) ===========
     lv_obj_t * title = lv_label_create(scr_main);
     lv_label_set_text(title, "Select Food");
@@ -397,7 +403,6 @@ void ui_wifi_up(WIFI_state_t state)
         case WIFI_STATE_DISCONNECTED:
             // 断开连接，显示红色
             if (wifi_icon) {
-                
                 lv_obj_set_style_text_color(wifi_icon, lv_color_hex(0xFF0000), 0); // 红色表示断开
             }
             break;
@@ -429,5 +434,26 @@ void ui_up_temp(float temp, int rem_time_s)
         lv_label_set_text(time_label, strftime_buf);
     }
     
+    _lock_release(&lvgl_api_lock);
+}
+
+void ui_mic_state_update(mic_state_t state)
+{
+    if (mic_icon == NULL) return;
+    _lock_acquire(&lvgl_api_lock);
+    switch (state) {
+        case MIC_STATE_LISTENING:
+            // 唤醒未说话状态：显示蓝色
+            lv_label_set_text(mic_icon, LV_SYMBOL_AUDIO);
+            lv_obj_set_style_text_color(mic_icon, lv_color_hex(0x00A2FF), 0);
+            break;
+        case MIC_STATE_SPEAKING:
+            // 正在说话/录音状态：显示绿色，或者你也可以在这里换个符号！
+            lv_label_set_text(mic_icon, LV_SYMBOL_AUDIO);
+            lv_obj_set_style_text_color(mic_icon, lv_color_hex(0x00FF00), 0);
+            break;
+        default:
+            break;
+    }
     _lock_release(&lvgl_api_lock);
 }
