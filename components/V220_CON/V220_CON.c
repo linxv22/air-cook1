@@ -21,7 +21,12 @@ static rmt_channel_handle_t rmt_tx_chan = NULL;
 static rmt_encoder_handle_t rmt_copy_encoder = NULL;
 static TaskHandle_t rmt_tx_task_handle = NULL;
 
-static run_config_t current_config = {0}; // 当前烹饪配置
+static run_config_t current_config = {
+    .temperature = 180.0f,
+    .SPEED = 60,
+    .time_s = 15 * 60,
+    .state = cook_stopped
+}; // 当前烹饪配置
 
 //函数声明
 static void V220_HOT_CON(bool con);
@@ -150,7 +155,7 @@ static void cook_control(void *arg)
             break;
         case cook_paused:
             V220_HOT_CON(false);
-            V220_FAN_CON(true, current_config.SPEED); // 暂停时保持风扇高速运转，帮助散热
+            V220_FAN_CON(true, 60); // 暂停时保持风扇高速运转，帮助散热
             break;
         case cook_cooling_down:
             if (post_cook_cooling_s > 0) 
@@ -162,7 +167,7 @@ static void cook_control(void *arg)
                 current_config.state = cook_stopped;
             }
             V220_HOT_CON(false);
-            V220_FAN_CON(true, current_config.SPEED);
+            V220_FAN_CON(true,60);
             break;
         case cook_error:
             V220_HOT_CON(false);
@@ -334,5 +339,7 @@ static void V220_FAN_CON(bool con, uint32_t speed)
 
 cook_state_t aircook_getstate(void)
 {
+    ESP_LOGI(TAG, "Current State: %d, Temp: %.1f C, Time Left: %ld s, Fan Speed: %d%%", 
+             current_config.state, current_config.temperature, current_config.time_s, current_config.SPEED);
     return current_config.state;
 }

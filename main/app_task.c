@@ -17,7 +17,6 @@ esp_event_loop_handle_t loop_handle;
 ESP_EVENT_DEFINE_BASE(AIR_COOKER_EVENTS);
 
 
-
 // 工作状态，当前时间，当前温度，风扇转速，剩余时间，联网状态（顶层右上角WiFI小标志），语音识别的界面（识别到主人说话了就弹出，涉及到LVGL加字库）
 
 WIFI_state_t WIFI_STATE = WIFI_STATE_INIT;
@@ -85,7 +84,7 @@ void app_event_handler(void* handler_arg, esp_event_base_t base, int32_t id, voi
             ui_mic_state_update( *(mic_state_t *)event_data);
             break;
         }
-         case EVENT_CLOUD_CMD: {
+        case EVENT_CLOUD_CMD: {
             // 这里可以根据 event_data 的内容来区分不同的云端命令，并执行相应的操作
             ESP_LOGI(TAG, "Logic: Cloud command received!");
             break;

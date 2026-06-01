@@ -268,7 +268,7 @@ static void log_clear(void)
     esp_log_level_set("I2S_STREAM", ESP_LOG_ERROR);
     esp_log_level_set("RSP_FILTER", ESP_LOG_ERROR);
     esp_log_level_set("AUDIO_EVT", ESP_LOG_ERROR);
-    // 【已删】删除了音频播放相关的日志设置
+   
 }
 
 void my_audio_init(void)

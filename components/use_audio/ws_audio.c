@@ -39,12 +39,6 @@ static void websocket_event_handler(void *handler_args, esp_event_base_t base, i
         break;
     case WEBSOCKET_EVENT_DISCONNECTED:
         ESP_LOGI(TAG, "WEBSOCKET_EVENT_DISCONNECTED");
-        // log_error_if_nonzero("HTTP status code",  data->error_handle.esp_ws_handshake_status_code);
-        // if (data->error_handle.error_type == WEBSOCKET_ERROR_TYPE_TCP_TRANSPORT) {
-        //     log_error_if_nonzero("reported from esp-tls", data->error_handle.esp_tls_last_esp_err);
-        //     log_error_if_nonzero("reported from tls stack", data->error_handle.esp_tls_stack_err);
-        //     log_error_if_nonzero("captured as transport's socket errno",  data->error_handle.esp_transport_sock_errno);
-        // }
         break;
     case WEBSOCKET_EVENT_DATA:
         if (data->op_code == 0x2) { // Opcode 0x2 indicates binary data
@@ -53,49 +47,40 @@ static void websocket_event_handler(void *handler_args, esp_event_base_t base, i
             ESP_LOGW(TAG, "Received closed message with code=%d", 256 * data->data_ptr[0] + data->data_ptr[1]);
         } 
         // If received data contains json structure it succeed to parse
-        if (data->op_code == 0x1 && data->data_ptr != NULL && data->data_len > 0) {
+        if (data->op_code == 0x1 ) { 
             cJSON *root = cJSON_Parse(data->data_ptr);
             if (root) {
-                // Log the full JSON for debugging
+                // 打印全部json数据以便调试
                 char *json_str = cJSON_PrintUnformatted(root);
                 if (json_str) {
                     ESP_LOGI(TAG, "Parsed JSON: %s", json_str);
                     free(json_str);
                 }
-
-                // Check if it's an array of objects with "id"/"name" fields
-                if (cJSON_IsArray(root)) {
-                    int arr_size = cJSON_GetArraySize(root);
-                    for (int i = 0 ; i < arr_size ; i++) {
-                        cJSON *elem = cJSON_GetArrayItem(root, i);
-                        if (cJSON_IsObject(elem)) {
-                            cJSON *id = cJSON_GetObjectItem(elem, "id");
-                            cJSON *name = cJSON_GetObjectItem(elem, "name");
-                            if (id && cJSON_IsString(id) && name && cJSON_IsString(name)) {
-                                ESP_LOGI(TAG, "Json={'id': '%s', 'name': '%s'}", id->valuestring, name->valuestring);
-                            }
-                        }
-                    }
-                } else if (cJSON_IsObject(root)) {
+                // 处理对象类型的响应（例如 {"status": "success", ...}）
+                if (cJSON_IsObject(root)) {
                     // Handle object-type response (e.g. {"status": "success", ...})
-                    cJSON *status = cJSON_GetObjectItem(root, "status");
-                    cJSON *text = cJSON_GetObjectItem(root, "recognized_text");
-                    cJSON *llm = cJSON_GetObjectItem(root, "llm_response");
-                    if (status && cJSON_IsString(status)) {
-                        ESP_LOGI(TAG, "Response status: %s", status->valuestring);
+                    cJSON *temp = cJSON_GetObjectItem(root, "temp");
+                    cJSON *time = cJSON_GetObjectItem(root, "time");
+                    cJSON *funSpeed = cJSON_GetObjectItem(root, "funSpeed");
+                    if (temp && cJSON_IsNumber(temp)) {
+                        ESP_LOGI(TAG, "Temperature: %f", temp->valuedouble);
                     }
-                    if (text && cJSON_IsString(text)) {
-                        ESP_LOGI(TAG, "Recognized text: %s", text->valuestring);
+                    if (time && cJSON_IsNumber(time)) {
+                        ESP_LOGI(TAG, "Time: %d", (int)time->valuedouble);
                     }
-                    if (llm && cJSON_IsString(llm)) {
-                        ESP_LOGI(TAG, "LLM response: %s", llm->valuestring);
+                    if (funSpeed && cJSON_IsNumber(funSpeed)) {
+                        ESP_LOGI(TAG, "Fan Speed: %d", (int)funSpeed->valuedouble);
                     }
+                    cook_config_t cook_json = {
+                        .temperature = temp ? (float)temp->valuedouble : 0.0f,
+                        .time_s = time ? (int)time->valuedouble : 0,
+                        .fan_speed = funSpeed ? (fan_speed_t)(int)funSpeed->valuedouble : fan_low
+                    };
+                    esp_event_post_to(loop_handle, AIR_COOKER_EVENTS, EVENT_CLOUD_CMD, &cook_json, sizeof(cook_config_t), portMAX_DELAY);
                 }
                 cJSON_Delete(root);
             }
         }
-
-        ESP_LOGW(TAG, "Total payload length=%d, data_len=%d, current payload offset=%d\r\n", data->payload_len, data->data_len, data->payload_offset);
         break;
     case WEBSOCKET_EVENT_ERROR:
         ESP_LOGI(TAG, "WEBSOCKET_EVENT_ERROR");
