@@ -738,6 +738,7 @@ class AudioProcessor:
 
         if "command_data" in result:
             command_data = result["command_data"]
+            action = command_data.get("action", "chat")
             reply_text = command_data.get("reply", "")
             
             # 2. 语音合成 (TTS)
@@ -755,18 +756,28 @@ class AudioProcessor:
                 except Exception as e:
                     print(f"  [警告] 保存本地播报16位PCM文件失败: {e}")
             
-            # 3. 构造第一阶段回发的 JSON 
             response_json = {
                 "status": "success",
-                "audio_file": Path(result["file_path"]).name,
-                "command": command_data,  
+                "action": action,
+                "reply": reply_text,
                 "has_audio_reply": tts_pcm_bytes is not None
             }
             
+            # ✅ 如果是烹饪指令，把 cook 字段提升到顶层，并做类型转换
+            if action == "cook":
+                # funSpeed 字符串 → 整数映射（与 ESP32 fan_speed_t 枚举一致：High=0, Mid=1, Low=2）
+                fun_speed_map = {"High": 0, "Middle": 1, "Low": 2}
+                fun_speed_str = command_data.get("funSpeed", "Low")
+                
+                response_json["food"] = command_data.get("food", "")
+                response_json["temp"] = float(command_data.get("temp", 0))       # 字符串 → 浮点数
+                response_json["time"] = int(command_data.get("time", 0))          # 字符串 → 整数(秒)
+                response_json["funSpeed"] = fun_speed_map.get(fun_speed_str, 2)   # 字符串 → 整数枚举
+                
             try:
                 # 🚀 阶段 1：发送控制指令 JSON (只发送一次，不重复发) [1]
                 await websocket.send(json.dumps(response_json, ensure_ascii=False))
-                print("  [第一阶段] 成功发送控制指令 JSON 文本帧。")
+                print(f"  [第一阶段] 成功发送控制指令 JSON: {json.dumps(response_json, ensure_ascii=False)}")
                 
                 # 🚀 阶段 2：发送语音播报 PCM 原始音频流 (只发送一次) [1]
                 if tts_pcm_bytes:

@@ -120,6 +120,8 @@ static void cook_control(void *arg)
             if (current_config.time_s == 0)
             {
                 current_config.state = cook_cooling_down;
+                esp_event_post_to(loop_handle, AIR_COOKER_EVENTS, EVENT_CMD_FINISH,
+                                    NULL, 0, 100/portTICK_PERIOD_MS);
                 post_cook_cooling_s = 30;
             }
             if (relay_lock_sec > 0) {
@@ -286,7 +288,7 @@ void aircook_set_speed(fan_speed_t speed)
 {
      switch (speed) {
             case fan_high:
-                current_config.SPEED = 85; 
+                current_config.SPEED = 83; 
                 break;
             case fan_mid:
                 current_config.SPEED = 70;
@@ -339,7 +341,7 @@ static void V220_FAN_CON(bool con, uint32_t speed)
 
 cook_state_t aircook_getstate(void)
 {
-    ESP_LOGI(TAG, "Current State: %d, Temp: %.1f C, Time Left: %ld s, Fan Speed: %d%%", 
-             current_config.state, current_config.temperature, current_config.time_s, current_config.SPEED);
+    // ESP_LOGI(TAG, "Current State: %d, Temp: %.1f C, Time Left: %ld s, Fan Speed: %d%%", 
+    //          current_config.state, current_config.temperature, current_config.time_s, current_config.SPEED);
     return current_config.state;
 }

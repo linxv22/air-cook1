@@ -38,9 +38,15 @@ void app_event_handler(void* handler_arg, esp_event_base_t base, int32_t id, voi
             break;
         }
         case EVENT_CMD_STOP: {
-           aircook_stop();
-           ESP_LOGI(TAG, "Logic: Cook Stopped!");
-           break;
+            aircook_stop();
+            ESP_LOGI(TAG, "Logic: Cook Stopped!");
+            break;
+        }
+        case EVENT_CMD_FINISH: {
+            ESP_LOGI(TAG, "Logic: Cook Finished! ");
+            ui_show_cooking_complete();
+            //预留声音播报接口，等音频模块做好了再来调用
+            break;
         }
         case EVENT_CMD_SET_TEMP: {
             float *temp = (float *)event_data;
@@ -54,6 +60,7 @@ void app_event_handler(void* handler_arg, esp_event_base_t base, int32_t id, voi
             break;
         }
         case EVENT_TEMP_UPDATED: {
+            if(aircook_getstate() == cook_running)
             ui_up_temp(ntc_adc_read_temperature(), aircook_gettime());
             break;
         }
@@ -84,9 +91,15 @@ void app_event_handler(void* handler_arg, esp_event_base_t base, int32_t id, voi
             ui_mic_state_update( *(mic_state_t *)event_data);
             break;
         }
-        case EVENT_CLOUD_CMD: {
-            // 这里可以根据 event_data 的内容来区分不同的云端命令，并执行相应的操作
-            ESP_LOGI(TAG, "Logic: Cloud command received!");
+        case EVENT_CLOUD_DATA: {
+            cloud_data_t *cloud_data = (cloud_data_t *)event_data;    
+            if(aircook_getstate() == cook_stopped) { // 只有在空闲状态才接受云端命令开始烹饪
+
+                ESP_LOGI(TAG, "Logic: Cloud command executed! Temp: %.1f C, Time: %ld s, Fan Enum: %d, Food: %s", 
+                         cloud_data->temperature, cloud_data->time_s, cloud_data->fan_speed, cloud_data->food_name);
+            } else {
+                ESP_LOGW(TAG, "Logic: Cannot execute cloud command, current state is not stopped!");
+            }
             break;
         }
 

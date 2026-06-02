@@ -40,7 +40,7 @@ void app_main(void)
     //修改测试代码
 
     while (1) {
-        vTaskDelay(pdMS_TO_TICKS(10000));
+        vTaskDelay(pdMS_TO_TICKS(20000));
         // 打印所有可用内存（内部 DRAM + 外部 PSRAM）
         uint32_t free_heap = esp_get_free_heap_size();
         // 专门打印内部 DRAM 的可用内存

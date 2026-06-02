@@ -10,6 +10,7 @@ void ui_start(void);
 void ui_wifi_up(WIFI_state_t state);
 void ui_up_temp(float temp, int rem_time_s);
 void ui_mic_state_update(mic_state_t state);
-
+void ui_show_cooking_complete(void);
+void ui_show_cloud_detail(cloud_data_t *data);
 
 #endif // ui_con.h

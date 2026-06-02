@@ -183,7 +183,20 @@ static void preset_btn_event_cb(lv_event_t * e)
         // 更新详细界面的 Label 值
         lv_label_set_text_fmt(label_set_temp, "%d °C", (int)current_config.temperature);
         lv_label_set_text_fmt(label_set_time, "%d min", (int)current_config.time_s / 60);
-        lv_label_set_text_fmt(label_set_fan, "Fan: %d%%", (int)(current_config.fan_speed * 100));
+         switch (current_config.fan_speed) {
+                    case fan_high:
+                        lv_label_set_text_fmt(label_set_fan, "Fan: High");
+                        break;
+                    case fan_mid:
+                        lv_label_set_text_fmt(label_set_fan, "Fan: Mid");
+                        break;
+                    case fan_low:
+                        lv_label_set_text_fmt(label_set_fan, "Fan: Low");
+                        break;
+                    default:
+                        lv_label_set_text_fmt(label_set_fan, "Fan: Unknown");
+                        break;
+                }
         
         // 切换到详细控制界面
         lv_screen_load(scr_detail);
@@ -263,6 +276,19 @@ static void wifi_icon_click_cb(lv_event_t * e)
     }
 }
 
+// "烹饪完成"页面 → 返回主页按钮回调
+static void complete_back_btn_cb(lv_event_t * e)
+{
+    if (lv_event_get_code(e) == LV_EVENT_CLICKED) {
+        // 回到主界面，让用户重新选择食物
+        if (btn_stop  != NULL) lv_obj_add_flag(btn_stop,    LV_OBJ_FLAG_HIDDEN);
+        if (btn_back  != NULL) lv_obj_remove_flag(btn_back,  LV_OBJ_FLAG_HIDDEN);
+        if (btn_start != NULL) lv_obj_remove_flag(btn_start, LV_OBJ_FLAG_HIDDEN);
+        lv_scr_load(scr_main);
+        esp_event_post_to(loop_handle, AIR_COOKER_EVENTS, EVENT_CMD_STOP, NULL, 0, 0);
+    }
+}
+
 // 辅助创建按钮包装器
 static lv_obj_t * create_ui_btn(lv_obj_t * parent, const char * txt, int x, int y, btn_id_t btn_id)
 {
@@ -279,17 +305,6 @@ static lv_obj_t * create_ui_btn(lv_obj_t * parent, const char * txt, int x, int 
     lv_obj_add_event_cb(btn, btn_event_cb, LV_EVENT_CLICKED, (void *)(uintptr_t)btn_id);
     return btn;
 }
-
-// "烹饪完成"页面 → 返回主页按钮回调
-static void complete_back_btn_cb(lv_event_t * e)
-{
-    if (lv_event_get_code(e) == LV_EVENT_CLICKED) {
-        // 回到主界面，让用户重新选择食物
-        lv_scr_load(scr_main);
-    }
-}
-
-
 
 // ============ UI 相关函数实现 ============
 void ui_start(void)
@@ -445,6 +460,7 @@ void ui_start(void)
     lv_obj_t * btn_home = lv_button_create(scr_complete);
     lv_obj_set_size(btn_home, 140, 50);
     lv_obj_align(btn_home, LV_ALIGN_CENTER, 0, 60);
+    // #ff0000 是红色， #187600 是深绿色
     lv_obj_set_style_bg_color(btn_home, lv_color_hex(0x187600), 0);
     lv_obj_add_event_cb(btn_home, complete_back_btn_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_t * label_home = lv_label_create(btn_home);
@@ -511,11 +527,15 @@ void ui_up_temp(float temp, int rem_time_s)
         lv_label_set_text(time_label, strftime_buf);
     }
     }
-    
     // ++ 必须做这步防御性判断！如果详情页都没有显示出来，就不应该去刷新详情页里的 Label！++
-    if (lv_screen_active() == scr_detail && Tem_label != NULL) {
-        lv_label_set_text_fmt(Tem_label, "Cur Tem: #006aff %.1f °C#", temp);
+    if (lv_screen_active() == scr_detail && Tem_label != NULL &&label_set_time != NULL) {
+        if(temp <100.0f) {
+            lv_label_set_text_fmt(Tem_label, "Cur Tem: #006aff %.1f °C#", temp);
+        } else {
+            lv_label_set_text_fmt(Tem_label, "Cur Tem: #ff0000 %.0f °C#", temp);
+        }
         lv_label_set_text_fmt(Remain_time_label, "Rem: %02d:%02d", rem_time_s / 60, rem_time_s % 60);
+        lv_label_set_text_fmt(label_set_time, "%02d:%02d", rem_time_s / 60, rem_time_s % 60);
     }
     
     _lock_release(&lvgl_api_lock);
@@ -553,3 +573,33 @@ void ui_show_cooking_complete(void)
     _lock_release(&lvgl_api_lock);
 }
 
+// ✅ 云端菜谱入口：复用 scr_detail，只改标题和预设值
+void ui_show_cloud_detail(cloud_data_t *data)
+{
+    if (data == NULL) return;
+
+    _lock_acquire(&lvgl_api_lock);
+
+    // 1. 将云端数据同步到 current_config
+    current_config.temperature = data->temperature;
+    current_config.time_s      = data->time_s;
+    current_config.fan_speed   = data->fan_speed;
+
+    // 2. 更新 scr_detail 上的显示值
+    lv_label_set_text_fmt(label_set_temp, "%d °C", (int)current_config.temperature);
+    lv_label_set_text_fmt(label_set_time, "%d min", (int)current_config.time_s / 60);
+    lv_label_set_text_fmt(label_set_fan, "Fan: %s",
+        current_config.fan_speed == fan_high ? "High" :
+        current_config.fan_speed == fan_mid  ? "Mid"  : "Low");
+
+
+    // 4. 确保按钮状态正确：Back/Start 可见，Stop 隐藏
+    if (btn_back  != NULL) lv_obj_remove_flag(btn_back,  LV_OBJ_FLAG_HIDDEN);
+    if (btn_start != NULL) lv_obj_remove_flag(btn_start, LV_OBJ_FLAG_HIDDEN);
+    if (btn_stop  != NULL) lv_obj_add_flag(btn_stop,    LV_OBJ_FLAG_HIDDEN);
+
+    // 5. 切换到详细界面
+    lv_scr_load(scr_detail);
+
+    _lock_release(&lvgl_api_lock);
+}

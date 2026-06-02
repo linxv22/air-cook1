@@ -129,6 +129,6 @@ ESP_ERROR_CHECK(adc_cali_create_scheme_curve_fitting(&cali_config, &cali_handle)
 float ntc_adc_read_temperature(void) {
     // 返回最近一次ADC任务在后台计算出的稳定温度值
 
-    // return current_temperature;
-    return 100.0f; // 这里先返回一个固定值，后续会改为 current_temperature
+    return current_temperature;
+    //return 100.0f; // 这里先返回一个固定值，后续会改为 current_temperature
 }

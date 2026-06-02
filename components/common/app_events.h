@@ -53,6 +53,7 @@ typedef enum {
     EVENT_CMD_SET_TEMP,         // 指令：设置目标温度
     EVENT_CMD_FAN_SPEED,        // 指令：设置风扇速度
     EVENT_CMD_STOP,             // 指令：停止工作
+    EVENT_CMD_FINISH,           // 指令：烹饪完成了，去显示完成界面吧
     //状态更新事件：底层状态机发生了变化，通知 UI 刷新显示
     EVENT_TEMP_UPDATED,         // 状态：当前实际温度更新了 (用来通知屏幕刷新数字)
     EVENT_WIND_UPDATED,         // 状态：当前显示页面更新了
@@ -63,13 +64,15 @@ typedef enum {
     //音频事件更新
     EVENT_AUDIO_CMD,    // 音频事件：检测到说话了
     //云端事件更新
-    EVENT_CLOUD_CMD, // 云端事件：成功连接云端了
+    EVENT_CLOUD_DATA, // 云端事件：云端发来了新的烹饪参数或者控制指令
+    
 } air_cooker_event_id_t;
 
 //显示屏界面状态
 typedef enum {
     wind_main,   //ui主界面
     wind_working,  //ui烹饪界面
+    wind_complete  //ui完成界面
 }wind_state_t;
 
 //风扇速度枚举
@@ -85,6 +88,14 @@ typedef struct {
     uint32_t time_s;//设定烹饪时间
     fan_speed_t fan_speed;//设定风扇速度
 } cook_config_t;
+
+//云端数据结构体
+typedef struct {
+    float temperature;//当前温度
+    uint32_t time_s;//剩余时间
+    fan_speed_t fan_speed;//当前风扇速度
+    char food_name[32];//当前食物名称
+} cloud_data_t;
 
 //设备wifi状态结构体
 typedef enum{
