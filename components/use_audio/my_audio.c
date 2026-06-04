@@ -198,7 +198,7 @@ static void start_recorder()
     }
     i2s_stream_cfg_t i2s_cfg = I2S_STREAM_CFG_DEFAULT_WITH_PARA(CODEC_ADC_I2S_PORT, 48000, 32, AUDIO_STREAM_READER);
     i2s_stream_reader = i2s_stream_init(&i2s_cfg);
-    audio_element_set_music_info(i2s_stream_reader, 48000, 2, 16);
+    audio_element_set_music_info(i2s_stream_reader, 48000, 4, 16);
     audio_element_handle_t filter = NULL;
     rsp_filter_cfg_t rsp_cfg = DEFAULT_RESAMPLE_FILTER_CONFIG();
     rsp_cfg.src_rate = 48000;
@@ -305,7 +305,7 @@ void my_audio_init(void)
 
     // [第三节管道]：I2S 硬件输出 
     i2s_stream_cfg_t i2s_cfg = I2S_STREAM_CFG_DEFAULT_WITH_PARA(CODEC_ADC_I2S_PORT, 48000, 32, AUDIO_STREAM_WRITER);
-    i2s_cfg.need_expand = true;           // 【救命神键】：将 16位 音频自动拉伸到 32位，完美匹配底层硬件！
+    i2s_cfg.need_expand = true;           
     i2s_cfg.expand_src_bits = 16;
     i2s_stream_writer = i2s_stream_init(&i2s_cfg);
 

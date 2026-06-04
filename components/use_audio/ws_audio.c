@@ -9,7 +9,7 @@
 
 #include "app_events.h"
 
-#define WEBSOCKET_URI "ws://192.168.57.157"
+#define WEBSOCKET_URI "ws://192.168.55.187"
 #define WEBSOCKET_PORT 8765
 
 

@@ -60,7 +60,7 @@ void app_event_handler(void* handler_arg, esp_event_base_t base, int32_t id, voi
             break;
         }
         case EVENT_TEMP_UPDATED: {
-            if(aircook_getstate() == cook_running)
+            // if(aircook_getstate() == cook_running)
             ui_up_temp(ntc_adc_read_temperature(), aircook_gettime());
             break;
         }
@@ -94,7 +94,7 @@ void app_event_handler(void* handler_arg, esp_event_base_t base, int32_t id, voi
         case EVENT_CLOUD_DATA: {
             cloud_data_t *cloud_data = (cloud_data_t *)event_data;    
             if(aircook_getstate() == cook_stopped) { // 只有在空闲状态才接受云端命令开始烹饪
-
+                ui_show_cloud_detail(cloud_data); // 先展示云端数据到界面上
                 ESP_LOGI(TAG, "Logic: Cloud command executed! Temp: %.1f C, Time: %ld s, Fan Enum: %d, Food: %s", 
                          cloud_data->temperature, cloud_data->time_s, cloud_data->fan_speed, cloud_data->food_name);
             } else {

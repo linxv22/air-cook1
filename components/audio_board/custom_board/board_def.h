@@ -141,49 +141,5 @@ extern audio_hal_func_t AUDIO_CODEC_ES7210_DEFAULT_HANDLE;
         },                                              \
 };
 
-/**
- * @brief Button Function Definition
- */
-#define FUNC_BUTTON_EN              (-1)
-#define INPUT_KEY_NUM               6
-#define BUTTON_VOLUP_ID             0
-#define BUTTON_VOLDOWN_ID           1
-#define BUTTON_SET_ID               2
-#define BUTTON_PLAY_ID              3
-#define BUTTON_MODE_ID              4
-#define BUTTON_REC_ID               5
-
-#define INPUT_KEY_DEFAULT_INFO() {                      \
-     {                                                  \
-        .type = PERIPH_ID_ADC_BTN,                      \
-        .user_id = INPUT_KEY_USER_ID_REC,               \
-        .act_id = BUTTON_REC_ID,                        \
-    },                                                  \
-    {                                                   \
-        .type = PERIPH_ID_ADC_BTN,                      \
-        .user_id = INPUT_KEY_USER_ID_MUTE,              \
-        .act_id = BUTTON_MODE_ID,                       \
-    },                                                  \
-    {                                                   \
-        .type = PERIPH_ID_ADC_BTN,                      \
-        .user_id = INPUT_KEY_USER_ID_SET,               \
-        .act_id = BUTTON_SET_ID,                        \
-    },                                                  \
-    {                                                   \
-        .type = PERIPH_ID_ADC_BTN,                      \
-        .user_id = INPUT_KEY_USER_ID_PLAY,              \
-        .act_id = BUTTON_PLAY_ID,                       \
-    },                                                  \
-    {                                                   \
-        .type = PERIPH_ID_ADC_BTN,                      \
-        .user_id = INPUT_KEY_USER_ID_VOLUP,             \
-        .act_id = BUTTON_VOLUP_ID,                      \
-    },                                                  \
-    {                                                   \
-        .type = PERIPH_ID_ADC_BTN,                      \
-        .user_id = INPUT_KEY_USER_ID_VOLDOWN,           \
-        .act_id = BUTTON_VOLDOWN_ID,                    \
-    }                                                   \
-}
 
 #endif

@@ -11,6 +11,8 @@
 extern _lock_t lvgl_api_lock;
 extern WIFI_state_t WIFI_STATE;
 
+LV_FONT_DECLARE(my_font);
+
 static const char *TAG = "UI_CON";
 
 // ============ UI 局部状态缓存 ============ 
@@ -306,6 +308,27 @@ static lv_obj_t * create_ui_btn(lv_obj_t * parent, const char * txt, int x, int 
     return btn;
 }
 
+// ============ 时间刷新定时器回调 ============
+static void time_update_timer_cb(lv_timer_t *timer)
+{
+    time_t now;
+    struct tm timeinfo;
+    char buf[16];
+    
+    time(&now);
+    localtime_r(&now, &timeinfo);
+    
+    if (timeinfo.tm_year >= (2026 - 1900)) {  // 年份 >= 2026 说明 SNTP 已同步
+        strftime(buf, sizeof(buf), "%H:%M", &timeinfo);
+    } else {
+        snprintf(buf, sizeof(buf), "--:--");
+    }
+    
+    if (time_label != NULL) {
+        lv_label_set_text(time_label, buf);
+    }
+}
+
 // ============ UI 相关函数实现 ============
 void ui_start(void)
 {
@@ -337,10 +360,12 @@ void ui_start(void)
     lv_obj_set_ext_click_area(wifi_icon, 20); 
     lv_obj_add_event_cb(wifi_icon, wifi_icon_click_cb, LV_EVENT_CLICKED, NULL);
 
-     mic_icon = lv_label_create(top_layer);
-    lv_label_set_text(mic_icon, LV_SYMBOL_AUDIO);  // 使用 LVGL 自带在音频/麦克风符号
+
+    mic_icon = lv_label_create(top_layer);
+    lv_label_set_text(mic_icon, "\uf130");  // 使用 LVGL 自带在音频/麦克风符号
     // 根据需求隐藏或者显示，如果不激活时想让它不可见可以调 hidden 标志
     // lv_obj_add_flag(mic_icon, LV_OBJ_FLAG_HIDDEN); 
+    lv_obj_set_style_text_font(mic_icon, &my_font, 0);
     lv_obj_align_to(mic_icon, wifi_icon, LV_ALIGN_OUT_LEFT_MID, -10, 0); // 在 Wifi 图标左边 10 像素
 
     // =========== 3. 绘制主界面 (scr_main) ===========
@@ -471,6 +496,8 @@ void ui_start(void)
     // =========== 5. 载入默认界面 ===========
     lv_scr_load(scr_main);
 
+    lv_timer_create(time_update_timer_cb, 30000, NULL); // 每 30 秒更新一次时间显示
+
     _lock_release(&lvgl_api_lock);
 }
 
@@ -509,24 +536,11 @@ void ui_wifi_up(WIFI_state_t state)
      _lock_release(&lvgl_api_lock);
 }
 
-// 提供一个接口让 app_task.c 可以更新当前温度显示
+// 温度和剩余时间更新函数
 void ui_up_temp(float temp, int rem_time_s)
 {
     _lock_acquire(&lvgl_api_lock);
-    static int i =0;
-    i++;
-    if(i>=60) 
-    {i=0; // 这个函数每秒调用一次，i 用来测试调用频率，理论上应该每分钟更新一次时间显示
-    time_t now;
-    struct tm timeinfo;
-    char strftime_buf[16];
-    time(&now);
-    localtime_r(&now, &timeinfo);
-    strftime(strftime_buf, sizeof(strftime_buf), "%H:%M", &timeinfo);
-    if (time_label != NULL) {
-        lv_label_set_text(time_label, strftime_buf);
-    }
-    }
+
     // ++ 必须做这步防御性判断！如果详情页都没有显示出来，就不应该去刷新详情页里的 Label！++
     if (lv_screen_active() == scr_detail && Tem_label != NULL &&label_set_time != NULL) {
         if(temp <100.0f) {
@@ -549,12 +563,10 @@ void ui_mic_state_update(mic_state_t state)
     switch (state) {
         case MIC_STATE_LISTENING:
             // 未说话状态：显示蓝色
-            lv_label_set_text(mic_icon, LV_SYMBOL_AUDIO);
             lv_obj_set_style_text_color(mic_icon, lv_color_hex(0x00A2FF), 0);
             break;
         case MIC_STATE_SPEAKING:
             // 正在说话/录音状态：显示绿色，或者你也可以在这里换个符号！
-            lv_label_set_text(mic_icon, LV_SYMBOL_AUDIO);
             lv_obj_set_style_text_color(mic_icon, lv_color_hex(0x00FF00), 0);
             break;
         default:

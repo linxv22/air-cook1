@@ -47,7 +47,7 @@ warnings.filterwarnings("ignore", category=UserWarning)
 class Config:
     """配置类"""
     # DeepSeek API配置
-    DEEPSEEK_API_KEY = "sk-3b85b79027a44653883f549ae8558be3"  # 替换为实际密钥
+    DEEPSEEK_API_KEY = "sk-b2e2358d55884987bef6ccf249c99d06"  # 替换为实际密钥
     DEEPSEEK_API_URL = "https://api.deepseek.com/chat/completions"
     DEEPSEEK_MODEL = "deepseek-chat"
     

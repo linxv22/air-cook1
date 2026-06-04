@@ -79,3 +79,7 @@ Desktop.ini
 
 # VS Code
 .vscode/
+
+#python output
+.output/
+.temp/
