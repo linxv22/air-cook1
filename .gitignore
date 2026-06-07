@@ -81,5 +81,5 @@ Desktop.ini
 .vscode/
 
 #python output
-.output/
-.temp/
+output/
+temp/

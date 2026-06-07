@@ -198,7 +198,7 @@ static void start_recorder()
     }
     i2s_stream_cfg_t i2s_cfg = I2S_STREAM_CFG_DEFAULT_WITH_PARA(CODEC_ADC_I2S_PORT, 48000, 32, AUDIO_STREAM_READER);
     i2s_stream_reader = i2s_stream_init(&i2s_cfg);
-    audio_element_set_music_info(i2s_stream_reader, 48000, 4, 16);
+    // audio_element_set_music_info(i2s_stream_reader, 48000, 4, 16);
     audio_element_handle_t filter = NULL;
     rsp_filter_cfg_t rsp_cfg = DEFAULT_RESAMPLE_FILTER_CONFIG();
     rsp_cfg.src_rate = 48000;
