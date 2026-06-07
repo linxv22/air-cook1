@@ -537,7 +537,7 @@ void ui_wifi_up(WIFI_state_t state)
 }
 
 // 温度和剩余时间更新函数
-void ui_up_temp(float temp, int rem_time_s)
+void ui_up_temp(float temp, int rem_time_s )
 {
     _lock_acquire(&lvgl_api_lock);
 
@@ -548,8 +548,12 @@ void ui_up_temp(float temp, int rem_time_s)
         } else {
             lv_label_set_text_fmt(Tem_label, "Cur Tem: #ff0000 %.0f °C#", temp);
         }
-        lv_label_set_text_fmt(Remain_time_label, "Rem: %02d:%02d", rem_time_s / 60, rem_time_s % 60);
-        lv_label_set_text_fmt(label_set_time, "%02d:%02d", rem_time_s / 60, rem_time_s % 60);
+        if (btn_start == NULL)
+        {
+            lv_label_set_text_fmt(Remain_time_label, "Rem: %02d:%02d", rem_time_s / 60, rem_time_s % 60);
+            lv_label_set_text_fmt(label_set_time, "%02d:%02d", rem_time_s / 60, rem_time_s % 60);
+        }
+        
     }
     
     _lock_release(&lvgl_api_lock);
@@ -612,6 +616,26 @@ void ui_show_cloud_detail(cloud_data_t *data)
 
     // 5. 切换到详细界面
     lv_scr_load(scr_detail);
+
+    _lock_release(&lvgl_api_lock);
+}
+
+// ✅ 公开函数：供 app_task.c 云端命令直接触发启动（等同于按下 START）
+void ui_cloud_start(void)
+{
+    _lock_acquire(&lvgl_api_lock);
+
+    cook_config_t cfg = {
+        .temperature = current_config.temperature,
+        .time_s      = current_config.time_s,
+        .fan_speed   = current_config.fan_speed,
+    };
+    esp_event_post_to(loop_handle, AIR_COOKER_EVENTS, EVENT_CMD_aircook,
+                      &cfg, sizeof(cfg), 0);
+
+    if (btn_back  != NULL) lv_obj_add_flag(btn_back,  LV_OBJ_FLAG_HIDDEN);
+    if (btn_start != NULL) lv_obj_add_flag(btn_start, LV_OBJ_FLAG_HIDDEN);
+    if (btn_stop  != NULL) lv_obj_remove_flag(btn_stop, LV_OBJ_FLAG_HIDDEN);
 
     _lock_release(&lvgl_api_lock);
 }

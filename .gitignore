@@ -3,6 +3,9 @@
 .AppleDouble
 .LSOverride
 
+# Environment files (contain sensitive API keys)
+.env
+
 # Directory metadata
 .directory
 

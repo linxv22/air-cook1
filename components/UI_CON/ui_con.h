@@ -12,5 +12,6 @@ void ui_up_temp(float temp, int rem_time_s);
 void ui_mic_state_update(mic_state_t state);
 void ui_show_cooking_complete(void);
 void ui_show_cloud_detail(cloud_data_t *data);
+void ui_cloud_start(void);
 
 #endif // ui_con.h

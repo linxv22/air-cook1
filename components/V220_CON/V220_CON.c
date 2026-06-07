@@ -262,7 +262,7 @@ void aircook_start(cook_config_t *config)
     // 根据传入的枚举值确定硬件的实际风速百分比
         switch (config->fan_speed) {
             case fan_high:
-                current_config.SPEED = 85; 
+                current_config.SPEED = 83; 
                 break;
             case fan_mid:
                 current_config.SPEED = 70;

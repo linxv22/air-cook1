@@ -26,6 +26,40 @@ import tempfile
 import warnings
 import websockets
 
+# ============ 环境变量加载 (从 .env 文件读取本地配置) ============
+def _load_dotenv(env_path: Optional[str] = None):
+    """
+    从 .env 文件加载环境变量（不覆盖已有的系统环境变量）。
+    优先级：系统环境变量 > .env 文件
+    """
+    if env_path is None:
+        # 默认查找当前脚本同目录下的 .env
+        env_path = Path(__file__).parent / ".env"
+    else:
+        env_path = Path(env_path)
+    
+    if not env_path.exists():
+        return  # 没有 .env 文件也不报错，允许纯环境变量模式
+    
+    with open(env_path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            key = key.strip()
+            value = value.strip()
+            # 去除引号包裹
+            if len(value) >= 2 and value[0] in ('"', "'") and value[-1] == value[0]:
+                value = value[1:-1]
+            # 不覆盖已有环境变量
+            if key not in os.environ:
+                os.environ[key] = value
+
+_load_dotenv()  # 在模块加载时自动读取 .env
+
 # 导入语音合成模块
 try:
     import edge_tts
@@ -45,13 +79,14 @@ warnings.filterwarnings("ignore", category=UserWarning)
 
 # ============ 配置区域 ============
 class Config:
-    """配置类"""
-    # DeepSeek API配置
-    DEEPSEEK_API_KEY = "sk-b2e2358d55884987bef6ccf249c99d06"  # 替换为实际密钥
-    DEEPSEEK_API_URL = "https://api.deepseek.com/chat/completions"
-    DEEPSEEK_MODEL = "deepseek-chat"
+    """配置类 —— 敏感信息（如 API Key）请通过环境变量或 .env 文件设置，不要硬编码在代码中"""
     
-    # ESP32 采集音频输入与回传配置 (严格变回 16kHz / 16-bit / 单声道 PCM)
+    # ===== 敏感配置：从环境变量读取 =====
+    DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")  # 环境变量: DEEPSEEK_API_KEY
+    DEEPSEEK_API_URL = os.environ.get("DEEPSEEK_API_URL", "https://api.deepseek.com/chat/completions")
+    DEEPSEEK_MODEL = os.environ.get("DEEPSEEK_MODEL", "deepseek-chat")
+    
+    # ===== 非敏感配置 =====
     PCM_SAMPLE_RATE = 16000        # 16kHz
     PCM_SAMPLE_WIDTH = 2           # 16-bit (2字节)
     PCM_CHANNELS = 1               # 单声道
@@ -278,7 +313,7 @@ class LLMClient:
             "  \"temp\": \"加热温度(摄氏度数字字符串，如 '180')\",\n"
             "  \"time\": \"加热时间(秒数数字字符串，如 '300')\",\n"
             "  \"funSpeed\": \"风扇转速，必须只能是 'Low', 'Middle', 'High' 之一\",\n"
-            "  \"reply\": \"好的，设定温度{temp}摄氏度，风扇转速{风速中文名}，您的{food}预计{time_in_minutes}分钟内炸好！\"\n"
+            "  \"reply\": \"好的，设定温度{temp}摄氏度，风扇转速{风速中文名}，您的{food}预计{time_in_minutes}分钟内炸好！可以智能添加祝福语，例如祝您用餐愉快！\"\n"
             "}\n"
             "【💥 特别重要细节要求】：\n"
             "- reply 字段中的 {temp} 必须与 JSON 里的 temp 字段保持完全一致。\n"
@@ -289,7 +324,7 @@ class LLMClient:
             "如果是其他食物（例如：帮我烘烤一根香蕉，你估算温度160，时间480），你必须输出相匹配的更丰富的播报语 reply 格式为：\"好的，设定温度160摄氏度，风扇转速中，您的香蕉预计8分钟内炸好！\"，其他食物依此类推。\n\n"
             
             "2. 开始工作场景 (action = 'start')：\n"
-            "当用户说“OK，开始吧”、“开机”、“开始加热”、“开始工作”等肯定、开始指令时触发。输出：\n"
+            "当用户说“启动吧”、“开机”、“开始加热”、“开始工作”等肯定、开始指令时触发。输出：\n"
             "{\n"
             "  \"action\": \"start\",\n"
             "  \"reply\": \"好的，空气炸锅现在开始加热工作，祝您用餐愉快！\"\n"
@@ -816,12 +851,41 @@ class AudioProcessor:
 # ============ 主入口 ============
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="空气炸锅智能多轮控制服务端")
-    parser.add_argument("--api-key", help="DeepSeek API密钥")
+    parser.add_argument("--api-key", help="DeepSeek API密钥（优先级最高，覆盖环境变量和.env文件）")
+    parser.add_argument("--env-file", default=None, help="指定 .env 配置文件路径（默认: 脚本同目录下的 .env）")
     args = parser.parse_args()
     
+    # 如果指定了 --env-file，重新加载
+    if args.env_file:
+        _load_dotenv(args.env_file)
+    
     config = Config()
-    if args.api_key: 
+    
+    # 优先级：命令行参数 > 环境变量 > .env 文件
+    if args.api_key:
         config.DEEPSEEK_API_KEY = args.api_key
+    
+    # 启动前校验 API Key
+    if not config.DEEPSEEK_API_KEY:
+        print("=" * 60)
+        print("⚠️  未设置 DeepSeek API Key！请通过以下任一方式提供：")
+        print("   1. 命令行参数:  python Server_test03.py --api-key sk-xxx")
+        print("   2. 环境变量:    set DEEPSEEK_API_KEY=sk-xxx  (Windows)")
+        print("                  export DEEPSEEK_API_KEY=sk-xxx (Linux/Mac)")
+        print("   3. .env 文件:  在脚本同目录创建 .env 文件，写入:")
+        print("                  DEEPSEEK_API_KEY=sk-xxx")
+        print("=" * 60)
+        exit(1)
+    
+    print(f"[Config] DeepSeek 模型: {config.DEEPSEEK_MODEL}")
+    print(f"[Config] API Key 来源: ", end="")
+    if args.api_key:
+        print("命令行参数")
+    elif os.environ.get("DEEPSEEK_API_KEY"):
+        print("环境变量 / .env 文件")
+    else:
+        print("未知")
+    print()
     
     processor = AudioProcessor(config)
     processor.recognizer._init_whisper()

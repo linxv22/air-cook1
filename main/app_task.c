@@ -102,6 +102,21 @@ void app_event_handler(void* handler_arg, esp_event_base_t base, int32_t id, voi
             }
             break;
         }
+        case EVENT_CLOUD_CMD:{
+            cloud_cmd_t *cloud_cmd = (cloud_cmd_t *)event_data;
+            if(*cloud_cmd == cloud_cmd_start) {
+                if(aircook_getstate() == cook_stopped) { // 只有在空闲状态才接受云端命令开始烹饪
+                    ui_cloud_start(); // 直接触发开始烹饪的事件（等同于按下 START 按钮）
+                    ESP_LOGI(TAG, "Logic: Cloud command to START cooking executed!");
+                } else {
+                    ESP_LOGW(TAG, "Logic: Cannot execute cloud START command, current state is not stopped!");
+                }
+            } else if (*cloud_cmd == cloud_cmd_stop) {
+                aircook_stop();
+                ESP_LOGI(TAG, "Logic: Cloud command to STOP cooking executed!");
+            }
+            break;
+        }
 
         default:
             ESP_LOGW(TAG, "Logic: Unhandled event ID: %d", id);

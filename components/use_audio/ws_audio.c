@@ -9,7 +9,7 @@
 
 #include "app_events.h"
 
-#define WEBSOCKET_URI "ws://192.168.55.187"
+#define WEBSOCKET_URI "ws://192.168.251.187"
 #define WEBSOCKET_PORT 8765
 
 
@@ -63,6 +63,7 @@ static void websocket_event_handler(void *handler_args, esp_event_base_t base, i
                     cJSON *time = cJSON_GetObjectItem(root, "time");
                     cJSON *funSpeed = cJSON_GetObjectItem(root, "funSpeed");
                     cJSON *food = cJSON_GetObjectItem(root, "food");
+                    cJSON *action = cJSON_GetObjectItem(root, "action");
                     if (temp && cJSON_IsNumber(temp)) {
                         ESP_LOGI(TAG, "Temperature: %f", temp->valuedouble);
                     }
@@ -75,15 +76,25 @@ static void websocket_event_handler(void *handler_args, esp_event_base_t base, i
                     if (food && cJSON_IsString(food)) {
                         ESP_LOGI(TAG, "Food: %s", food->valuestring);
                     }
-                    cloud_data_t cook_json = {
-                        .temperature = temp ? (float)temp->valuedouble : 0.0f,
-                        .time_s = time ? (int)time->valuedouble : 0,
-                        .fan_speed = funSpeed ? (fan_speed_t)(int)funSpeed->valuedouble : fan_low,
-                    };
-                    if (food && cJSON_IsString(food)) {
-                        snprintf(cook_json.food_name, sizeof(cook_json.food_name), "%s", food->valuestring);
+                    if (action && cJSON_IsString(action)) {
+                        ESP_LOGI(TAG, "Action: %s", action->valuestring);
                     }
-                    esp_event_post_to(loop_handle, AIR_COOKER_EVENTS, EVENT_CLOUD_DATA, &cook_json, sizeof(cloud_data_t), portMAX_DELAY);
+                    if(action && cJSON_IsString(action) && strcmp(action->valuestring, "cook") == 0) {
+                        cloud_data_t cook_json = {
+                            .temperature = temp ? (float)temp->valuedouble : 0.0f,
+                            .time_s = time ? (int)time->valuedouble : 0,
+                            .fan_speed = funSpeed ? (fan_speed_t)(int)funSpeed->valuedouble : fan_low,
+                        };
+                        if (food && cJSON_IsString(food)) {
+                            snprintf(cook_json.food_name, sizeof(cook_json.food_name), "%s", food->valuestring);
+                        }
+                        
+                        esp_event_post_to(loop_handle, AIR_COOKER_EVENTS, EVENT_CLOUD_DATA, &cook_json, sizeof(cloud_data_t), portMAX_DELAY);
+                    }
+                    if(action && cJSON_IsString(action) && strcmp(action->valuestring, "start") == 0) {
+                        cloud_cmd_t cloud_cmd = cloud_cmd_start; // 直接开始烹饪的命令
+                        esp_event_post_to(loop_handle, AIR_COOKER_EVENTS, EVENT_CLOUD_CMD, &cloud_cmd, sizeof(cloud_cmd_t), portMAX_DELAY);
+                    }
                 }
                 cJSON_Delete(root);
             }
