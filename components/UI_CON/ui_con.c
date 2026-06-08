@@ -548,7 +548,7 @@ void ui_up_temp(float temp, int rem_time_s )
         } else {
             lv_label_set_text_fmt(Tem_label, "Cur Tem: #ff0000 %.0f °C#", temp);
         }
-        if (btn_start == NULL)
+        if (btn_start != NULL && lv_obj_has_flag(btn_start, LV_OBJ_FLAG_HIDDEN))
         {
             lv_label_set_text_fmt(Remain_time_label, "Rem: %02d:%02d", rem_time_s / 60, rem_time_s % 60);
             lv_label_set_text_fmt(label_set_time, "%02d:%02d", rem_time_s / 60, rem_time_s % 60);
