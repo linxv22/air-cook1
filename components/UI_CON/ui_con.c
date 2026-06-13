@@ -38,33 +38,51 @@ typedef enum {
     BTN_ID_TIME_PLUS,// 时间加
     BTN_ID_FAN_MINUS,// 风速减
     BTN_ID_FAN_PLUS,// 风速加
-    BTN_ID_START,// 开始烹饪
-    BTN_ID_STOP// 停止烹饪
+    BTN_ID_START// 开始烹饪
 } btn_id_t;
 
 /// ============ 界面与控件句柄 ============ 
 static lv_obj_t * scr_main = NULL;   // 主界面
 static lv_obj_t * scr_detail = NULL; // 详细控制界面
-static lv_obj_t * scr_complete = NULL;
+static lv_obj_t * scr_complete = NULL; // 烹饪完成界面
+static lv_obj_t * scr_cooking = NULL; // 烹饪中界面
 
+// 顶层状态栏控件句柄
 static lv_obj_t * time_label = NULL; // 顶层状态栏的当前时间
 static lv_obj_t * wifi_icon = NULL;
 static lv_obj_t * mic_icon = NULL;
 
-// (保持你原有的这些句柄不变)
+// 详细界面句柄
 static lv_obj_t * Tem_label = NULL; // 详细界面显示当前温度的标签
 static lv_obj_t * label_set_food = NULL;
 static lv_obj_t * label_set_temp = NULL;
 static lv_obj_t * label_set_time = NULL;
 static lv_obj_t * label_set_fan = NULL;
+
+// 二维码界面句柄
 static lv_obj_t * ui_qrcode = NULL;  
 static lv_obj_t * qr_panel = NULL;   
 
 
-// ============ 动态按钮句柄（START后会被删除/重建）============
+// ============ 动态按钮句柄 ============
 static lv_obj_t * btn_back = NULL;
 static lv_obj_t * btn_start = NULL;
-static lv_obj_t * btn_stop = NULL;
+
+// 加减调节按钮句柄
+static lv_obj_t * btn_temp_minus = NULL;
+static lv_obj_t * btn_temp_plus  = NULL;
+static lv_obj_t * btn_time_minus = NULL;
+static lv_obj_t * btn_time_plus  = NULL;
+static lv_obj_t * btn_fan_minus  = NULL;
+static lv_obj_t * btn_fan_plus   = NULL;
+
+// ============ 烹饪中界面 (scr_cooking) 控件句柄 ============
+static lv_obj_t * cook_food_label = NULL;   // 食物名称
+static lv_obj_t * cook_temp_label = NULL;   // 实时温度（大字体）
+static lv_obj_t * cook_time_label = NULL;   // 剩余时间倒计时
+static lv_obj_t * cook_fan_label  = NULL;   // 当前风速
+static lv_obj_t * btn_stop_cook   = NULL;   // 烹饪界面的停止按钮
+
 
 // ============ LVGL 事件回调函数声明 ============
 // ================= UI 与 按键回调 =================
@@ -141,21 +159,26 @@ static void btn_event_cb(lv_event_t * e)
                     esp_event_post_to(loop_handle, AIR_COOKER_EVENTS, EVENT_CMD_aircook,
                                     &cfg, sizeof(cfg), 0);
 
-                    // ✅ 隐藏 Back 和 Start，显示 Stop
-                    if (btn_back != NULL) lv_obj_add_flag(btn_back, LV_OBJ_FLAG_HIDDEN);
-                    if (btn_start != NULL) lv_obj_add_flag(btn_start, LV_OBJ_FLAG_HIDDEN);
-                    if (btn_stop != NULL) lv_obj_remove_flag(btn_stop, LV_OBJ_FLAG_HIDDEN);
+                    // ✅ 同步信息到烹饪界面
+                    if (cook_food_label != NULL)
+                        lv_label_set_text(cook_food_label, lv_label_get_text(label_set_food));
+                    if (cook_temp_label != NULL)
+                        lv_label_set_text_fmt(cook_temp_label, "#006aff %.1f °C#", current_config.temperature);
+                    if (cook_time_label != NULL)
+                        lv_label_set_text_fmt(cook_time_label, "剩余 %d:%02d",
+                            (int)current_config.time_s / 60, (int)current_config.time_s % 60);
+                    if (cook_fan_label != NULL) {
+                        const char *fan_str =
+                            current_config.fan_speed == fan_high ? "High" :
+                            current_config.fan_speed == fan_mid  ? "Mid"  : "Low";
+                        lv_label_set_text_fmt(cook_fan_label, "风速  %s", fan_str);
+                    }
+
+                    // ✅ 切换到烹饪界面
+                    lv_scr_load(scr_cooking);
                 }
                 break;
 
-            case BTN_ID_STOP:
-                esp_event_post_to(loop_handle, AIR_COOKER_EVENTS, EVENT_CMD_STOP, NULL, 0, 0);
-
-                // ✅ 隐藏 Stop，显示 Back 和 Start
-                if (btn_stop != NULL) lv_obj_add_flag(btn_stop, LV_OBJ_FLAG_HIDDEN);
-                if (btn_back != NULL) lv_obj_remove_flag(btn_back, LV_OBJ_FLAG_HIDDEN);
-                if (btn_start != NULL) lv_obj_remove_flag(btn_start, LV_OBJ_FLAG_HIDDEN);
-                break;
             default:
                 break;
         }
@@ -289,10 +312,6 @@ static void wifi_icon_click_cb(lv_event_t * e)
 static void complete_back_btn_cb(lv_event_t * e)
 {
     if (lv_event_get_code(e) == LV_EVENT_CLICKED) {
-        // 回到主界面，让用户重新选择食物
-        if (btn_stop  != NULL) lv_obj_add_flag(btn_stop,    LV_OBJ_FLAG_HIDDEN);
-        if (btn_back  != NULL) lv_obj_remove_flag(btn_back,  LV_OBJ_FLAG_HIDDEN);
-        if (btn_start != NULL) lv_obj_remove_flag(btn_start, LV_OBJ_FLAG_HIDDEN);
         lv_scr_load(scr_main);
         esp_event_post_to(loop_handle, AIR_COOKER_EVENTS, EVENT_CMD_STOP, NULL, 0, 0);
     }
@@ -318,6 +337,17 @@ static lv_obj_t * create_ui_btn(lv_obj_t * parent, const char * txt, int x, int 
     lv_obj_align(btn, LV_ALIGN_CENTER, x, y);
     lv_obj_add_event_cb(btn, btn_event_cb, LV_EVENT_CLICKED, (void *)(uintptr_t)btn_id);
     return btn;
+}
+
+
+
+// 烹饪界面 "停止" 按钮回调
+static void cook_stop_btn_cb(lv_event_t * e)
+{
+    if (lv_event_get_code(e) == LV_EVENT_CLICKED) {
+        esp_event_post_to(loop_handle, AIR_COOKER_EVENTS, EVENT_CMD_STOP, NULL, 0, 0);
+        lv_scr_load(scr_detail);
+    }
 }
 
 // ============ 时间刷新定时器回调 ============
@@ -372,11 +402,9 @@ void ui_start(void)
     lv_obj_set_ext_click_area(wifi_icon, 20); 
     lv_obj_add_event_cb(wifi_icon, wifi_icon_click_cb, LV_EVENT_CLICKED, NULL);
 
-
+    // 右上角: 麦克风图标
     mic_icon = lv_label_create(top_layer);
-    lv_label_set_text(mic_icon, "\uf130");  // 使用 LVGL 自带在音频/麦克风符号
-    // 根据需求隐藏或者显示，如果不激活时想让它不可见可以调 hidden 标志
-    // lv_obj_add_flag(mic_icon, LV_OBJ_FLAG_HIDDEN); 
+    lv_label_set_text(mic_icon, "\uf130"); 
     lv_obj_set_style_text_font(mic_icon, &my_font, 0);
     lv_obj_align_to(mic_icon, wifi_icon, LV_ALIGN_OUT_LEFT_MID, -10, 0); // 在 Wifi 图标左边 10 像素
 
@@ -451,24 +479,24 @@ void ui_start(void)
     lv_obj_align(label_set_food, LV_ALIGN_TOP_RIGHT, -10, 45);
 
     /* 参数调控区：这里已经全面更改为枚举传递 */
-    create_ui_btn(scr_detail, "-", -70, -50, BTN_ID_TEMP_MINUS);
+    btn_temp_minus = create_ui_btn(scr_detail, "-", -70, -50, BTN_ID_TEMP_MINUS);
     
     label_set_temp = lv_label_create(scr_detail);
     lv_label_set_text_fmt(label_set_temp, "%d °C", (int)current_config.temperature);
     lv_obj_align(label_set_temp, LV_ALIGN_CENTER, 0, -50);
-    create_ui_btn(scr_detail, "+", 70, -50, BTN_ID_TEMP_PLUS);
+    btn_temp_plus = create_ui_btn(scr_detail, "+", 70, -50, BTN_ID_TEMP_PLUS);
 
-    create_ui_btn(scr_detail, "-", -70, 0, BTN_ID_TIME_MINUS);
+    btn_time_minus = create_ui_btn(scr_detail, "-", -70, 0, BTN_ID_TIME_MINUS);
     label_set_time = lv_label_create(scr_detail);
     lv_label_set_text_fmt(label_set_time, "%d min",(int) current_config.time_s / 60);
     lv_obj_align(label_set_time, LV_ALIGN_CENTER, 0, 0);
-    create_ui_btn(scr_detail, "+", 70, 0, BTN_ID_TIME_PLUS);
+    btn_time_plus = create_ui_btn(scr_detail, "+", 70, 0, BTN_ID_TIME_PLUS);
 
-    create_ui_btn(scr_detail, "-", -70, 50, BTN_ID_FAN_MINUS);
+    btn_fan_minus = create_ui_btn(scr_detail, "-", -70, 50, BTN_ID_FAN_MINUS);
     label_set_fan = lv_label_create(scr_detail);
-    lv_label_set_text_fmt(label_set_fan, "Fan: %d%%", (int)(current_config.fan_speed * 100));
+    lv_label_set_text_fmt(label_set_fan, "Fan: Mid");
     lv_obj_align(label_set_fan, LV_ALIGN_CENTER, 0, 50);
-    create_ui_btn(scr_detail, "+", 70, 50, BTN_ID_FAN_PLUS);
+    btn_fan_plus = create_ui_btn(scr_detail, "+", 70, 50, BTN_ID_FAN_PLUS);
 
 
    /* ──── 底部操作区（改为隐藏/显示模式）──── */
@@ -480,7 +508,7 @@ void ui_start(void)
     lv_obj_t * label_back = lv_label_create(btn_back);
     lv_label_set_text(label_back, "返回");
     lv_obj_set_style_text_color(label_back, lv_color_hex(0x000000), 0);    // 黑色文字
-    lv_obj_set_style_text_font(btn_back, &kaiTI, 0);
+    lv_obj_set_style_text_font(label_back, &kaiTI, 0);
     lv_obj_center(label_back);
 
     // ✅ START 按钮（创建后可见）
@@ -496,19 +524,52 @@ void ui_start(void)
     lv_obj_set_style_text_font(btn_start, &kaiTI, 0);
     lv_obj_center(label_start);
 
-    // ✅ STOP 按钮（创建但初始隐藏！）
-    btn_stop = lv_button_create(scr_detail);
-    lv_obj_set_size(btn_stop, 90, 45);
-    lv_obj_align(btn_stop, LV_ALIGN_BOTTOM_MID, -50, -10);
-    lv_obj_set_style_bg_color(btn_stop, lv_color_hex(0xFF0000), 0);
-    lv_obj_add_event_cb(btn_stop, btn_event_cb, LV_EVENT_CLICKED,
-                        (void *)(uintptr_t)BTN_ID_STOP);
-    lv_obj_t * label_stop = lv_label_create(btn_stop);
-    lv_label_set_text(label_stop, "停止");
-    lv_obj_set_style_text_color(label_stop, lv_color_hex(0x000000), 0);    // 黑色文字
-    lv_obj_set_style_text_font(label_stop, &kaiTI, 0);
-    lv_obj_center(label_stop);
-    lv_obj_add_flag(btn_stop, LV_OBJ_FLAG_HIDDEN);  // ← 初始隐藏
+    // =========== 4.5. 烹饪中界面 (scr_cooking) ===========
+    scr_cooking = lv_obj_create(NULL);
+    lv_obj_set_style_bg_color(scr_cooking, lv_color_hex(0xFFFFFF), 0);
+
+    // ── 食物名称 ──
+    cook_food_label = lv_label_create(scr_cooking);
+    lv_label_set_text(cook_food_label, "薯条");
+    lv_obj_set_style_text_color(cook_food_label, lv_color_hex(0x333333), 0);
+    lv_obj_set_style_text_font(cook_food_label, &kaiTI, 0);
+    lv_obj_align(cook_food_label, LV_ALIGN_TOP_MID, 0, 35);
+
+    // ── 实时温度（大字体居中）──
+    cook_temp_label = lv_label_create(scr_cooking);
+    lv_label_set_recolor(cook_temp_label, true);
+    lv_label_set_text(cook_temp_label, "#006aff 25.0 °C#");
+    lv_obj_set_style_text_font(cook_temp_label, &lv_font_montserrat_24, 0);
+    lv_obj_align(cook_temp_label, LV_ALIGN_CENTER, 0, -30);
+
+    // ── 剩余时间倒计时 ──
+    cook_time_label = lv_label_create(scr_cooking);
+    lv_label_set_text(cook_time_label, "剩余 15:00");
+    lv_obj_set_style_text_color(cook_time_label, lv_color_hex(0x333333), 0);
+    lv_obj_set_style_text_font(cook_time_label, &kaiTI, 0);
+    lv_obj_align(cook_time_label, LV_ALIGN_CENTER, 0, 25);
+
+    // ── 风速指示 ──
+    cook_fan_label = lv_label_create(scr_cooking);
+    lv_label_set_text(cook_fan_label, "风速  Mid");
+    lv_obj_set_style_text_color(cook_fan_label, lv_color_hex(0x666666), 0);
+    lv_obj_set_style_text_font(cook_fan_label, &kaiTI, 0);
+    lv_obj_align(cook_fan_label, LV_ALIGN_CENTER, 0, 60);
+
+    // ── 停止按钮 ──
+    btn_stop_cook = lv_button_create(scr_cooking);
+    lv_obj_set_size(btn_stop_cook, 180, 55);
+    lv_obj_align(btn_stop_cook, LV_ALIGN_BOTTOM_MID, 0, -25);
+    lv_obj_set_style_bg_color(btn_stop_cook, lv_color_hex(0xFF0000), 0);
+    lv_obj_set_style_bg_color(btn_stop_cook, lv_color_hex(0xCC0000), LV_STATE_PRESSED);
+    lv_obj_set_style_radius(btn_stop_cook, 12, 0);
+    lv_obj_add_event_cb(btn_stop_cook, cook_stop_btn_cb, LV_EVENT_CLICKED, NULL);
+
+    lv_obj_t * label_stop_cook = lv_label_create(btn_stop_cook);
+    lv_label_set_text(label_stop_cook, "停止烹饪");
+    lv_obj_set_style_text_color(label_stop_cook, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_font(label_stop_cook, &kaiTI, 0);
+    lv_obj_center(label_stop_cook);
 
     // =========== 5. 烹饪完成界面 scr_complete ===========
     // 大图标或标题
@@ -582,26 +643,21 @@ void ui_wifi_up(WIFI_state_t state)
      _lock_release(&lvgl_api_lock);
 }
 
-// 温度和剩余时间更新函数
+// 温度和剩余时间更新函数（更新烹饪界面）
 void ui_up_temp(float temp, int rem_time_s )
 {
     _lock_acquire(&lvgl_api_lock);
 
-    // ++ 必须做这步防御性判断！如果详情页都没有显示出来，就不应该去刷新详情页里的 Label！++
-    if (lv_screen_active() == scr_detail && Tem_label != NULL &&label_set_time != NULL) {
-        if(temp <100.0f) {
-            lv_label_set_text_fmt(Tem_label, "#006aff %.1f °C#", temp);
+    // ✅ 只在烹饪界面活跃时才刷新
+    if (lv_screen_active() == scr_cooking && cook_temp_label != NULL && cook_time_label != NULL) {
+        if (temp < 100.0f) {
+            lv_label_set_text_fmt(cook_temp_label, "#006aff %.1f °C#", temp);
         } else {
-            lv_label_set_text_fmt(Tem_label, "#ff0000 %.0f °C#", temp);
+            lv_label_set_text_fmt(cook_temp_label, "#ff0000 %.0f °C#", temp);
         }
-        if (btn_start != NULL && lv_obj_has_flag(btn_start, LV_OBJ_FLAG_HIDDEN))
-        {
-            // lv_label_set_text_fmt(Remain_time_label, "Rem: %02d:%02d", rem_time_s / 60, rem_time_s % 60);
-            lv_label_set_text_fmt(label_set_time, "%02d:%02d", rem_time_s / 60, rem_time_s % 60);
-        }
-        
+        lv_label_set_text_fmt(cook_time_label, "剩余 %02d:%02d", rem_time_s / 60, rem_time_s % 60);
     }
-    
+
     _lock_release(&lvgl_api_lock);
 }
 
@@ -655,12 +711,7 @@ void ui_show_cloud_detail(cloud_data_t *data)
         current_config.fan_speed == fan_mid  ? "Mid"  : "Low");
     lv_label_set_text_fmt(label_set_food, "%s", data->food_name);
 
-    // 4. 确保按钮状态正确：Back/Start 可见，Stop 隐藏
-    if (btn_back  != NULL) lv_obj_remove_flag(btn_back,  LV_OBJ_FLAG_HIDDEN);
-    if (btn_start != NULL) lv_obj_remove_flag(btn_start, LV_OBJ_FLAG_HIDDEN);
-    if (btn_stop  != NULL) lv_obj_add_flag(btn_stop,    LV_OBJ_FLAG_HIDDEN);
-
-    // 5. 切换到详细界面
+    // 切换到详细界面
     lv_scr_load(scr_detail);
 
     _lock_release(&lvgl_api_lock);
@@ -679,9 +730,22 @@ void ui_cloud_start(void)
     esp_event_post_to(loop_handle, AIR_COOKER_EVENTS, EVENT_CMD_aircook,
                       &cfg, sizeof(cfg), 0);
 
-    if (btn_back  != NULL) lv_obj_add_flag(btn_back,  LV_OBJ_FLAG_HIDDEN);
-    if (btn_start != NULL) lv_obj_add_flag(btn_start, LV_OBJ_FLAG_HIDDEN);
-    if (btn_stop  != NULL) lv_obj_remove_flag(btn_stop, LV_OBJ_FLAG_HIDDEN);
+    // ✅ 同步信息到烹饪界面
+    if (cook_food_label != NULL)
+        lv_label_set_text(cook_food_label, lv_label_get_text(label_set_food));
+    if (cook_temp_label != NULL)
+        lv_label_set_text_fmt(cook_temp_label, "#006aff %.1f °C#", current_config.temperature);
+    if (cook_time_label != NULL)
+        lv_label_set_text_fmt(cook_time_label, "剩余 %d:%02d",
+            (int)current_config.time_s / 60, (int)current_config.time_s % 60);
+    if (cook_fan_label != NULL) {
+        const char *fan_str =
+            current_config.fan_speed == fan_high ? "High" :
+            current_config.fan_speed == fan_mid  ? "Mid"  : "Low";
+        lv_label_set_text_fmt(cook_fan_label, "风速  %s", fan_str);
+    }
 
+    // ✅ 切换到烹饪界面
+    lv_scr_load(scr_cooking);
     _lock_release(&lvgl_api_lock);
 }

@@ -114,6 +114,9 @@ void app_event_handler(void* handler_arg, esp_event_base_t base, int32_t id, voi
             } else if (*cloud_cmd == cloud_cmd_stop) {
                 aircook_stop();
                 ESP_LOGI(TAG, "Logic: Cloud command to STOP cooking executed!");
+            } else if (*cloud_cmd == cloud_cmd_pause) {
+                // 暂停功能暂不支持，先记录日志
+                ESP_LOGI(TAG, "Logic: Cloud command to PAUSE cooking received, but PAUSE is not implemented yet.");
             }
             break;
         }

@@ -102,6 +102,7 @@ typedef struct {
 typedef enum {
     cloud_cmd_start = 0, // 云端发来直接开始烹饪的命令（不需要再按一次开始了）
     cloud_cmd_stop,      // 云端发来停止烹饪的命令
+    cloud_cmd_pause,     // 云端发来暂停烹饪的命令
 } cloud_cmd_t;
 
 //设备wifi状态结构体

@@ -327,15 +327,34 @@ static void V220_HOT_CON(bool con)
 // 参数: con: true-开，false-关 speed：0-100，表示风扇转速百分比
 static void V220_FAN_CON(bool con, uint32_t speed)
 {
-    if(con == true) {
-        if (speed > 100) speed = 100; // 限制 speed 在 0-100 范围内
-        delay_time_us = 1000 + (100 - speed) * 80; // 线性映射计算延时时间
-        gpio_intr_enable(ZERO_CROSS); 
+    if (con == true) {
+        if (speed > 100) speed = 100;
+        delay_time_us = 1000 + (100 - speed) * 80;
+        gpio_intr_enable(ZERO_CROSS);
     } else {
-        // 关闭风扇后，我们保证下一次传输能被重置清空电平输出 (防常高电平锁死可控硅)
-        rmt_disable(rmt_tx_chan); 
-        rmt_enable(rmt_tx_chan); 
+        // ---------- 安全关机序列 ----------
+        
+        // 第一步：关闭中断源，阻止新的 ISR 产生
         gpio_intr_disable(ZERO_CROSS);
+        
+        // 第二步：等待当前正在进行的 RMT 传输完成（给 20ms 超时）
+        rmt_tx_wait_all_done(rmt_tx_chan, pdMS_TO_TICKS(25));
+        
+        // 第三步：发送一个"全低电平"的安全波形，确保 GPIO 拉低
+        rmt_transmit_config_t off_cfg = {
+            .loop_count = 0,
+            .flags.eot_level = 0   // 传输结束后保持低电平
+        };
+        rmt_symbol_word_t off_symbol = {
+            .duration0 = 1000, .level0 = 0,
+            .duration1 = 0,    .level1 = 0
+        };
+        rmt_transmit(rmt_tx_chan, rmt_copy_encoder, 
+                     &off_symbol, sizeof(off_symbol), &off_cfg);
+        
+        // 第四步：等待安全波形发送完成
+        rmt_tx_wait_all_done(rmt_tx_chan, pdMS_TO_TICKS(10));
+        
     }
 }
 

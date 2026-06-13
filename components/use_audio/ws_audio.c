@@ -89,11 +89,15 @@ static void websocket_event_handler(void *handler_args, esp_event_base_t base, i
                             snprintf(cook_json.food_name, sizeof(cook_json.food_name), "%s", food->valuestring);
                         }
                         
-                        esp_event_post_to(loop_handle, AIR_COOKER_EVENTS, EVENT_CLOUD_DATA, &cook_json, sizeof(cloud_data_t), portMAX_DELAY);
+                        esp_event_post_to(loop_handle, AIR_COOKER_EVENTS, EVENT_CLOUD_DATA, &cook_json, sizeof(cloud_data_t), 0);
                     }
                     if(action && cJSON_IsString(action) && strcmp(action->valuestring, "start") == 0) {
                         cloud_cmd_t cloud_cmd = cloud_cmd_start; // 直接开始烹饪的命令
-                        esp_event_post_to(loop_handle, AIR_COOKER_EVENTS, EVENT_CLOUD_CMD, &cloud_cmd, sizeof(cloud_cmd_t), portMAX_DELAY);
+                        esp_event_post_to(loop_handle, AIR_COOKER_EVENTS, EVENT_CLOUD_CMD, &cloud_cmd, sizeof(cloud_cmd_t), 0);
+                    }
+                    if(action && cJSON_IsString(action) && strcmp(action->valuestring, "pause") == 0) {
+                        cloud_cmd_t cloud_cmd = cloud_cmd_pause; // 暂停烹饪的命令
+                        esp_event_post_to(loop_handle, AIR_COOKER_EVENTS, EVENT_CLOUD_CMD, &cloud_cmd, sizeof(cloud_cmd_t), 0);
                     }
                 }
                 cJSON_Delete(root);

@@ -77,7 +77,7 @@ esp_audio_handle_t     player_handle = NULL;
 static audio_rec_handle_t     recorder      = NULL;
 static audio_element_handle_t raw_read      = NULL;
 static QueueHandle_t          rec_q         = NULL;
-static bool                   voice_reading = false;
+static volatile bool         voice_reading = false;
 
 extern esp_websocket_client_handle_t client;
 extern audio_element_handle_t raw_read_el;
@@ -131,7 +131,7 @@ static void voice_read_task(void *args)
         }
     }
 
-    free(voiceData);
+    audio_free(voiceData);
     vTaskDelete(NULL);
 }
 
@@ -146,13 +146,13 @@ static esp_err_t rec_engine_cb(audio_rec_evt_t *event, void *user_data)
         if (raw_read_el != NULL) {
             raw_stream_write(raw_read_el, (char *)lr_pcm_start, dingdong_len);
         }
-        esp_event_post_to(loop_handle, AIR_COOKER_EVENTS, EVENT_AUDIO_CMD, &(mic_state_t){MIC_STATE_SPEAKING}, sizeof(mic_state_t), portMAX_DELAY);
         if (voice_reading) {
             int msg = REC_CANCEL;
             if (xQueueSend(rec_q, &msg, 0) != pdPASS) {
                 ESP_LOGE(TAG, "rec cancel send failed");
             }
         }
+        esp_event_post_to(loop_handle, AIR_COOKER_EVENTS, EVENT_AUDIO_CMD, &(mic_state_t){MIC_STATE_SPEAKING}, sizeof(mic_state_t), 0);
     } else if (AUDIO_REC_VAD_START == event->type) {
         ESP_LOGI(TAG, "rec_engine_cb - REC_EVENT_VAD_START");
         if (!voice_reading) {
@@ -163,14 +163,13 @@ static esp_err_t rec_engine_cb(audio_rec_evt_t *event, void *user_data)
         }
     } else if (AUDIO_REC_VAD_END == event->type) {
         ESP_LOGI(TAG, "rec_engine_cb - REC_EVENT_VAD_STOP");
-        esp_event_post_to(loop_handle, AIR_COOKER_EVENTS, EVENT_AUDIO_CMD, &(mic_state_t){MIC_STATE_LISTENING}, sizeof(mic_state_t), portMAX_DELAY);
         if (voice_reading) {
             int msg = REC_STOP;
             if (xQueueSend(rec_q, &msg, 0) != pdPASS) {
                 ESP_LOGE(TAG, "rec stop send failed");
             }
         }
-
+        esp_event_post_to(loop_handle, AIR_COOKER_EVENTS, EVENT_AUDIO_CMD, &(mic_state_t){MIC_STATE_LISTENING}, sizeof(mic_state_t), 0);
     } else if (AUDIO_REC_WAKEUP_END == event->type) {
         ESP_LOGI(TAG, "rec_engine_cb - REC_EVENT_WAKEUP_END");
         AUDIO_MEM_SHOW(TAG);
@@ -252,7 +251,7 @@ static void start_recorder()
     cfg.sr_handle = recorder_sr_create(&recorder_sr_cfg, &cfg.sr_iface);
     cfg.event_cb = rec_engine_cb;
     cfg.vad_off = 1500;
-    cfg.vad_start = 300;
+    cfg.vad_start = 400;
     recorder = audio_recorder_create(&cfg);
 }
 
@@ -322,10 +321,11 @@ void my_audio_init(void)
     // 启动后它会自动停在此处挂起并侦听 raw_read_el，不占用 CPU，等待数据降临！
     audio_pipeline_run(pipeline);
     
+    rec_q = xQueueCreate(3, sizeof(int));
     es7210_adc_set_volume(GAIN_37_5DB);
     start_recorder();
     
-    rec_q = xQueueCreate(3, sizeof(int));
+    
     audio_thread_create(NULL, "read_task", voice_read_task, NULL, 4 * 1024, 5, true, 0);
    
 }
