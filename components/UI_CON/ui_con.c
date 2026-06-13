@@ -12,6 +12,7 @@ extern _lock_t lvgl_api_lock;
 extern WIFI_state_t WIFI_STATE;
 
 LV_FONT_DECLARE(my_font);
+LV_FONT_DECLARE(kaiTI);
 
 static const char *TAG = "UI_CON";
 
@@ -21,6 +22,7 @@ static cook_config_t current_config = {
     .time_s = 15 * 60,
     .fan_speed = fan_mid
 };
+
 static wind_state_t current_wind_state = wind_main; // 当前窗口状态，默认主页面
 static const char * qr_url_buffer = NULL; // 替换原来的 char 数组
 
@@ -51,7 +53,7 @@ static lv_obj_t * mic_icon = NULL;
 
 // (保持你原有的这些句柄不变)
 static lv_obj_t * Tem_label = NULL; // 详细界面显示当前温度的标签
-static lv_obj_t * Remain_time_label = NULL;
+static lv_obj_t * label_set_food = NULL;
 static lv_obj_t * label_set_temp = NULL;
 static lv_obj_t * label_set_time = NULL;
 static lv_obj_t * label_set_fan = NULL;
@@ -172,14 +174,17 @@ static void preset_btn_event_cb(lv_event_t * e)
             current_config.temperature = 180.0f;
             current_config.time_s = 15 * 60;
             current_config.fan_speed = fan_low;
+            lv_label_set_text(label_set_food, "薯条");
         } else if (btn_id == BTN_ID_PRESET_CHICKEN) {
             current_config.temperature = 200.0f;
             current_config.time_s = 25 * 60;
             current_config.fan_speed = fan_high;
+            lv_label_set_text(label_set_food, "炸鸡");
         } else if (btn_id == BTN_ID_PRESET_STEAK) {
             current_config.temperature = 200.0f;
             current_config.time_s = 12 * 60;
             current_config.fan_speed = fan_high;
+            lv_label_set_text(label_set_food, "牛排");
         }
         
         // 更新详细界面的 Label 值
@@ -199,6 +204,7 @@ static void preset_btn_event_cb(lv_event_t * e)
                         lv_label_set_text_fmt(label_set_fan, "Fan: Unknown");
                         break;
                 }
+        
         
         // 切换到详细控制界面
         lv_screen_load(scr_detail);
@@ -256,9 +262,10 @@ static void show_qrcode_panel(void)
     lv_label_set_text(label_close, LV_SYMBOL_CLOSE);
     lv_obj_center(label_close);
 
-    // 3. 提示文字（可选）
+    // 3. 提示文字
     lv_obj_t * title = lv_label_create(qr_panel);
-    lv_label_set_text(title, "Scan to Connect");
+    lv_label_set_text(title, "扫描连接Wi-Fi");
+    lv_obj_set_style_text_font(title, &kaiTI, 0);
     lv_obj_align(title, LV_ALIGN_TOP_LEFT, -5, 0);
 
     // 4. 创建二维码
@@ -295,15 +302,20 @@ static void complete_back_btn_cb(lv_event_t * e)
 static lv_obj_t * create_ui_btn(lv_obj_t * parent, const char * txt, int x, int y, btn_id_t btn_id)
 {
     lv_obj_t * btn = lv_button_create(parent);
-    lv_obj_set_size(btn, 60, 40);
+    lv_obj_set_size(btn, 50, 40);
+    lv_obj_set_style_bg_color(btn, lv_color_hex(0xF5F5F5), 0);        // 浅灰底
+    lv_obj_set_style_bg_color(btn, lv_color_hex(0xE0E0E0), LV_STATE_PRESSED); // 按下时深一点
+    lv_obj_set_style_border_width(btn, 2, 0);
+    lv_obj_set_style_border_color(btn, lv_color_hex(0xBDBDBD), 0);    // 灰色边框
+    lv_obj_set_style_radius(btn, 8, 0);                               // 圆角
+
     lv_obj_t * label = lv_label_create(btn);
     lv_label_set_text(label, txt);
-    lv_obj_set_style_text_font(label, &lv_font_montserrat_24, 0);  // ← 加这行
+    lv_obj_set_style_text_color(label, lv_color_hex(0x000000), 0);    // 黑色文字
+    lv_obj_set_style_text_font(label, &kaiTI, 0);                     // 楷体
     lv_obj_center(label);
     
-    // 设置位置和点击事件
     lv_obj_align(btn, LV_ALIGN_CENTER, x, y);
-    // 强制转换为无类型指针发送
     lv_obj_add_event_cb(btn, btn_event_cb, LV_EVENT_CLICKED, (void *)(uintptr_t)btn_id);
     return btn;
 }
@@ -369,32 +381,56 @@ void ui_start(void)
     lv_obj_align_to(mic_icon, wifi_icon, LV_ALIGN_OUT_LEFT_MID, -10, 0); // 在 Wifi 图标左边 10 像素
 
     // =========== 3. 绘制主界面 (scr_main) ===========
+    // 标题
     lv_obj_t * title = lv_label_create(scr_main);
-    lv_label_set_text(title, "Select Food");
-    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 40);
+    lv_label_set_text(title, "烹饪模式");
+    lv_obj_set_style_text_color(title, lv_color_hex(0x333333), 0);
+    lv_obj_set_style_text_font(title, &kaiTI, 0);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 30);
 
+    // ── 薯条按钮 ──
     lv_obj_t * btn_fries = lv_button_create(scr_main);
-    lv_obj_set_size(btn_fries, 100, 40);
-    lv_obj_align(btn_fries, LV_ALIGN_CENTER, 0, -50);
-    lv_obj_add_event_cb(btn_fries, preset_btn_event_cb, LV_EVENT_CLICKED, (void *)(uintptr_t)BTN_ID_PRESET_FRIES);
+    lv_obj_set_size(btn_fries, 150, 55);
+    lv_obj_align(btn_fries, LV_ALIGN_CENTER, 0, -65);
+    lv_obj_set_style_bg_color(btn_fries, lv_color_hex(0xFFF9C4), 0);   // 淡黄色
+    lv_obj_set_style_border_width(btn_fries, 2, 0);
+    lv_obj_set_style_border_color(btn_fries, lv_color_hex(0xF9A825), 0); // 金色边框
+    lv_obj_add_event_cb(btn_fries, preset_btn_event_cb, LV_EVENT_CLICKED,
+                        (void *)(uintptr_t)BTN_ID_PRESET_FRIES);
     lv_obj_t * label_fries = lv_label_create(btn_fries);
-    lv_label_set_text(label_fries, "Fries");
+    lv_label_set_text(label_fries, "薯条");
+    lv_obj_set_style_text_color(label_fries, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_text_font(label_fries, &kaiTI, 0);
     lv_obj_center(label_fries);
 
+    // ── 炸鸡按钮 ──
     lv_obj_t * btn_chicken = lv_button_create(scr_main);
-    lv_obj_set_size(btn_chicken, 100, 40);
+    lv_obj_set_size(btn_chicken, 150, 55);
     lv_obj_align(btn_chicken, LV_ALIGN_CENTER, 0, 0);
-    lv_obj_add_event_cb(btn_chicken, preset_btn_event_cb, LV_EVENT_CLICKED, (void *)(uintptr_t)BTN_ID_PRESET_CHICKEN);
+    lv_obj_set_style_bg_color(btn_chicken, lv_color_hex(0xFFE0B2), 0);   // 淡橙色
+    lv_obj_set_style_border_width(btn_chicken, 2, 0);
+    lv_obj_set_style_border_color(btn_chicken, lv_color_hex(0xFB8C00), 0); // 橙色边框
+    lv_obj_add_event_cb(btn_chicken, preset_btn_event_cb, LV_EVENT_CLICKED,
+                        (void *)(uintptr_t)BTN_ID_PRESET_CHICKEN);
     lv_obj_t * label_chicken = lv_label_create(btn_chicken);
-    lv_label_set_text(label_chicken, "Chicken");
+    lv_label_set_text(label_chicken, "炸鸡");
+    lv_obj_set_style_text_color(label_chicken, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_text_font(label_chicken, &kaiTI, 0);
     lv_obj_center(label_chicken);
 
+    // ── 牛排按钮 ──
     lv_obj_t * btn_steak = lv_button_create(scr_main);
-    lv_obj_set_size(btn_steak, 100, 40);
-    lv_obj_align(btn_steak, LV_ALIGN_CENTER, 0, 50);
-    lv_obj_add_event_cb(btn_steak, preset_btn_event_cb, LV_EVENT_CLICKED, (void *)(uintptr_t)BTN_ID_PRESET_STEAK);
+    lv_obj_set_size(btn_steak, 150, 55);
+    lv_obj_align(btn_steak, LV_ALIGN_CENTER, 0, 65);
+    lv_obj_set_style_bg_color(btn_steak, lv_color_hex(0xFFCCBC), 0);   // 淡珊瑚色
+    lv_obj_set_style_border_width(btn_steak, 2, 0);
+    lv_obj_set_style_border_color(btn_steak, lv_color_hex(0xD84315), 0); // 红棕边框
+    lv_obj_add_event_cb(btn_steak, preset_btn_event_cb, LV_EVENT_CLICKED,
+                        (void *)(uintptr_t)BTN_ID_PRESET_STEAK);
     lv_obj_t * label_steak = lv_label_create(btn_steak);
-    lv_label_set_text(label_steak, "Steak");
+    lv_label_set_text(label_steak, "牛排");
+    lv_obj_set_style_text_color(label_steak, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_text_font(label_steak, &kaiTI, 0);
     lv_obj_center(label_steak);
 
     // =========== 4. 绘制详细界面 (scr_detail) ===========
@@ -405,12 +441,14 @@ void ui_start(void)
     // lv_label_set_recolor(Tem_label, true); // 此函数在 LVGL v8 被废除，转而使用 style 
     // 若原库是 v8 ，您这行可能编译失败或有效，这里保持您原带的样子。
     lv_label_set_recolor(Tem_label, true); 
-    lv_label_set_text(Tem_label, "Cur Tem: #006aff 25.0 °C#");
+    lv_label_set_text(Tem_label, "#006aff 25.0 °C#");
+    lv_obj_set_style_text_font(Tem_label, &lv_font_montserrat_24 , 0);
     lv_obj_align(Tem_label, LV_ALIGN_TOP_LEFT, 10, 45); 
 
-    Remain_time_label = lv_label_create(scr_detail);
-    lv_label_set_text(Remain_time_label, "Rem: 00:00");
-    lv_obj_align(Remain_time_label, LV_ALIGN_TOP_RIGHT, -10, 45);
+    label_set_food = lv_label_create(scr_detail);
+    lv_label_set_text(label_set_food, "xxx");
+    lv_obj_set_style_text_font(label_set_food, &kaiTI , 0);
+    lv_obj_align(label_set_food, LV_ALIGN_TOP_RIGHT, -10, 45);
 
     /* 参数调控区：这里已经全面更改为枚举传递 */
     create_ui_btn(scr_detail, "-", -70, -50, BTN_ID_TEMP_MINUS);
@@ -440,7 +478,9 @@ void ui_start(void)
     lv_obj_align(btn_back, LV_ALIGN_BOTTOM_MID, -50, -10);
     lv_obj_add_event_cb(btn_back, back_btn_event_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_t * label_back = lv_label_create(btn_back);
-    lv_label_set_text(label_back, "Back");
+    lv_label_set_text(label_back, "返回");
+    lv_obj_set_style_text_color(label_back, lv_color_hex(0x000000), 0);    // 黑色文字
+    lv_obj_set_style_text_font(btn_back, &kaiTI, 0);
     lv_obj_center(label_back);
 
     // ✅ START 按钮（创建后可见）
@@ -451,33 +491,37 @@ void ui_start(void)
     lv_obj_add_event_cb(btn_start, btn_event_cb, LV_EVENT_CLICKED,
                         (void *)(uintptr_t)BTN_ID_START);
     lv_obj_t * label_start = lv_label_create(btn_start);
-    lv_label_set_text(label_start, "START");
+    lv_label_set_text(label_start, "开始");
+    lv_obj_set_style_text_color(label_start, lv_color_hex(0x000000), 0);    // 黑色文字
+    lv_obj_set_style_text_font(btn_start, &kaiTI, 0);
     lv_obj_center(label_start);
 
     // ✅ STOP 按钮（创建但初始隐藏！）
     btn_stop = lv_button_create(scr_detail);
-    lv_obj_set_size(btn_stop, 120, 60);
-    lv_obj_align(btn_stop, LV_ALIGN_BOTTOM_MID, 0, -15);
+    lv_obj_set_size(btn_stop, 90, 45);
+    lv_obj_align(btn_stop, LV_ALIGN_BOTTOM_MID, -50, -10);
     lv_obj_set_style_bg_color(btn_stop, lv_color_hex(0xFF0000), 0);
     lv_obj_add_event_cb(btn_stop, btn_event_cb, LV_EVENT_CLICKED,
                         (void *)(uintptr_t)BTN_ID_STOP);
     lv_obj_t * label_stop = lv_label_create(btn_stop);
-    lv_label_set_text(label_stop, "STOP");
-    lv_obj_set_style_text_font(label_stop, &lv_font_montserrat_24, 0);
+    lv_label_set_text(label_stop, "停止");
+    lv_obj_set_style_text_color(label_stop, lv_color_hex(0x000000), 0);    // 黑色文字
+    lv_obj_set_style_text_font(label_stop, &kaiTI, 0);
     lv_obj_center(label_stop);
     lv_obj_add_flag(btn_stop, LV_OBJ_FLAG_HIDDEN);  // ← 初始隐藏
 
     // =========== 5. 烹饪完成界面 scr_complete ===========
     // 大图标或标题
     lv_obj_t * complete_title = lv_label_create(scr_complete);
-    lv_label_set_text(complete_title, "Cooking Complete!");
+    lv_label_set_text(complete_title, "烹饪完成");
     lv_obj_set_style_text_color(complete_title, lv_color_hex(0x006aff), 0);
-    lv_obj_set_style_text_font(complete_title, &lv_font_montserrat_24, 0); // 大字体
+    lv_obj_set_style_text_font(complete_title, &kaiTI, 0); // 大字体
     lv_obj_align(complete_title, LV_ALIGN_CENTER, 0, -40);
 
     // 提示文字
     lv_obj_t * complete_hint = lv_label_create(scr_complete);
-    lv_label_set_text(complete_hint, "Enjoy your meal!");
+    lv_label_set_text(complete_hint, "享受美食吧");
+    lv_obj_set_style_text_font(complete_hint, &kaiTI, 0); // 大字体
     lv_obj_set_style_text_color(complete_hint, lv_color_hex(0x333333), 0);
     lv_obj_align(complete_hint, LV_ALIGN_CENTER, 0, 10);
 
@@ -489,7 +533,8 @@ void ui_start(void)
     lv_obj_set_style_bg_color(btn_home, lv_color_hex(0x187600), 0);
     lv_obj_add_event_cb(btn_home, complete_back_btn_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_t * label_home = lv_label_create(btn_home);
-    lv_label_set_text(label_home, "Back to Menu");
+    lv_label_set_text(label_home, "返回主页");
+    lv_obj_set_style_text_font(label_home, &kaiTI, 0);
     lv_obj_center(label_home);
 
 
@@ -521,7 +566,8 @@ void ui_wifi_up(WIFI_state_t state)
                     qr_panel = NULL;
                     ui_qrcode = NULL; // 面板被删，内部的二维码也一并被销毁了
                 }
-                lv_obj_set_style_text_color(wifi_icon, lv_color_hex(0x00FF00), 0); // 绿色表示已连接
+                // #2732ff 是绿色，表示已连接
+                lv_obj_set_style_text_color(wifi_icon, lv_color_hex(0x2732ff), 0); // 绿色表示已连接
             }
             break;
         case WIFI_STATE_DISCONNECTED:
@@ -544,13 +590,13 @@ void ui_up_temp(float temp, int rem_time_s )
     // ++ 必须做这步防御性判断！如果详情页都没有显示出来，就不应该去刷新详情页里的 Label！++
     if (lv_screen_active() == scr_detail && Tem_label != NULL &&label_set_time != NULL) {
         if(temp <100.0f) {
-            lv_label_set_text_fmt(Tem_label, "Cur Tem: #006aff %.1f °C#", temp);
+            lv_label_set_text_fmt(Tem_label, "#006aff %.1f °C#", temp);
         } else {
-            lv_label_set_text_fmt(Tem_label, "Cur Tem: #ff0000 %.0f °C#", temp);
+            lv_label_set_text_fmt(Tem_label, "#ff0000 %.0f °C#", temp);
         }
         if (btn_start != NULL && lv_obj_has_flag(btn_start, LV_OBJ_FLAG_HIDDEN))
         {
-            lv_label_set_text_fmt(Remain_time_label, "Rem: %02d:%02d", rem_time_s / 60, rem_time_s % 60);
+            // lv_label_set_text_fmt(Remain_time_label, "Rem: %02d:%02d", rem_time_s / 60, rem_time_s % 60);
             lv_label_set_text_fmt(label_set_time, "%02d:%02d", rem_time_s / 60, rem_time_s % 60);
         }
         
@@ -566,8 +612,8 @@ void ui_mic_state_update(mic_state_t state)
     _lock_acquire(&lvgl_api_lock);
     switch (state) {
         case MIC_STATE_LISTENING:
-            // 未说话状态：显示蓝色
-            lv_obj_set_style_text_color(mic_icon, lv_color_hex(0x00A2FF), 0);
+            // 未说话状态：显示黑色 #000000
+            lv_obj_set_style_text_color(mic_icon, lv_color_hex(0x000000), 0);
             break;
         case MIC_STATE_SPEAKING:
             // 正在说话/录音状态：显示绿色，或者你也可以在这里换个符号！
@@ -607,7 +653,7 @@ void ui_show_cloud_detail(cloud_data_t *data)
     lv_label_set_text_fmt(label_set_fan, "Fan: %s",
         current_config.fan_speed == fan_high ? "High" :
         current_config.fan_speed == fan_mid  ? "Mid"  : "Low");
-
+    lv_label_set_text_fmt(label_set_food, "%s", data->food_name);
 
     // 4. 确保按钮状态正确：Back/Start 可见，Stop 隐藏
     if (btn_back  != NULL) lv_obj_remove_flag(btn_back,  LV_OBJ_FLAG_HIDDEN);
