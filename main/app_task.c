@@ -134,7 +134,7 @@ void app_event_init (void)
         .queue_size = 10,
         .task_name = "my_event_task", 
         .task_priority = 5,
-        .task_stack_size = 4096 ,
+        .task_stack_size = 8 * 1024 ,
         .task_core_id = tskNO_AFFINITY,
     };
 

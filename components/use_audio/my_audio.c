@@ -30,6 +30,7 @@
 #include "freertos/task.h"
 
 #include "esp_log.h"
+#include "esp_heap_caps.h"
 
 #include "amrnb_encoder.h"
 #include "amrwb_encoder.h"
@@ -65,11 +66,22 @@ extern const uint8_t lr_pcm_end[]   asm("_binary_dingdong_raw_end");
 #define WAKENET_ENABLE      (true)
 #define MULTINET_ENABLE     (true)
 
+
 enum _rec_msg_id {
     REC_START = 1,
     REC_STOP,
     REC_CANCEL,
 };
+
+/* ==================== PSRAM 缓冲池配置 ==================== */
+#define CHUNK_SIZE          1024        // 每块 4KB
+#define CHUNK_COUNT         128          // 128块 = 128KB PSRAM
+// 缓冲能力：128KB / 32KB/s(16kHz mono) ≈ 4秒
+
+typedef struct {
+    char *data;                         // 指向 PSRAM 块
+    int   len;                          // >0: 数据长度, 0: 停止标记
+} audio_pkt_t;
 
 static char *TAG = "wwe_example";
 
@@ -82,56 +94,128 @@ static volatile bool         voice_reading = false;
 extern esp_websocket_client_handle_t client;
 extern audio_element_handle_t raw_read_el;
 
+/* PSRAM 缓冲池相关 */
+static QueueHandle_t audio_free_q = NULL;   // 空闲块队列
+static QueueHandle_t audio_data_q = NULL;   // 数据块队列
+static char *psram_pool = NULL;             // PSRAM 内存池基址
+
+/* ==================== PSRAM 缓冲池初始化 ==================== */
+static esp_err_t audio_pool_init(void)
+{
+    size_t total = CHUNK_SIZE * CHUNK_COUNT;
+
+    psram_pool = (char *)heap_caps_calloc(1, total, MALLOC_CAP_SPIRAM);
+    if (psram_pool == NULL) {
+        ESP_LOGE(TAG, "Failed to allocate %d bytes in PSRAM", total);
+        return ESP_ERR_NO_MEM;
+    }
+    ESP_LOGI(TAG, "Audio pool: %d chunks x %d bytes = %d bytes in PSRAM",
+             CHUNK_COUNT, CHUNK_SIZE, total);
+
+    audio_free_q = xQueueCreate(CHUNK_COUNT, sizeof(audio_pkt_t));
+    audio_data_q = xQueueCreate(CHUNK_COUNT, sizeof(audio_pkt_t));
+    if (!audio_free_q || !audio_data_q) {
+        ESP_LOGE(TAG, "Failed to create audio queues");
+        return ESP_ERR_NO_MEM;
+    }
+
+    for (int i = 0; i < CHUNK_COUNT; i++) {
+        audio_pkt_t pkt = {
+            .data = psram_pool + i * CHUNK_SIZE,
+            .len  = 0,
+        };
+        xQueueSend(audio_free_q, &pkt, 0);
+    }
+    ESP_LOGI(TAG, "Audio pool initialized successfully");
+    return ESP_OK;
+}
+
+/* ==================== 生产者：只读录音，不碰网络 ==================== */
 static void voice_read_task(void *args)
 {
-    const int buf_len = 2 * 1024;
-    char *voiceData = audio_calloc(1, buf_len);
+    audio_pkt_t pkt;
     int msg = 0;
-    TickType_t delay = portMAX_DELAY;    
+    TickType_t delay = portMAX_DELAY;
+    bool producing = false;
 
     while (true) {
         if (xQueueReceive(rec_q, &msg, delay) == pdTRUE) {
             switch (msg) {
-                case REC_START: {
+                case REC_START:
                     ESP_LOGW(TAG, "voice read begin");
                     delay = 0;
+                    producing = true;
                     voice_reading = true;
-
                     break;
-                }
-                case REC_STOP: {
-                    ESP_LOGW(TAG, "voice read stopped");
+                case REC_STOP:
+                case REC_CANCEL:
+                    ESP_LOGW(TAG, "voice read stop/cancel");
                     delay = portMAX_DELAY;
+                    if (producing) {
+                        audio_pkt_t stop = { .data = NULL, .len = 0 };
+                        xQueueSend(audio_data_q, &stop, portMAX_DELAY);
+                    }
+                    producing = false;
                     voice_reading = false;
                     break;
-                }
-                case REC_CANCEL: {
-                    ESP_LOGW(TAG, "voice read cancel");
-                    delay = portMAX_DELAY;
-                    voice_reading = false;
-                    break;
-                }
                 default:
                     break;
             }
         }
-        int ret = 0;
-        if (voice_reading) {
-            ret = audio_recorder_data_read(recorder, voiceData, buf_len, portMAX_DELAY);
-            if (ret <= 0) {
-                ESP_LOGW(TAG, "audio recorder read finished %d", ret);
-                delay = portMAX_DELAY;
-                voice_reading = false;
-            }
-            else {
-                //发送音频数据到服务器
-                esp_websocket_client_send_bin(client,(const char *)voiceData,ret,portMAX_DELAY);
-                // printf("[WebSocket] 已发送 %d 字节的音频数据\n", ret);
+
+        if (!producing) continue;
+
+        if (xQueueReceive(audio_free_q, &pkt, pdMS_TO_TICKS(100)) != pdPASS) {
+            char dummy[CHUNK_SIZE];
+            audio_recorder_data_read(recorder, dummy, CHUNK_SIZE, 0);
+            ESP_LOGW(TAG, "no free chunk, drop frame");
+            continue;
+        }
+
+        pkt.len = audio_recorder_data_read(recorder, pkt.data,
+                                            CHUNK_SIZE, portMAX_DELAY);
+        if (pkt.len <= 0) {
+            ESP_LOGW(TAG, "recorder read finished %d", pkt.len);
+            xQueueSend(audio_free_q, &pkt, 0);
+            delay = portMAX_DELAY;
+            producing = false;
+            voice_reading = false;
+            audio_pkt_t stop = { .data = NULL, .len = 0 };
+            xQueueSend(audio_data_q, &stop, portMAX_DELAY);
+        } else {
+            if (xQueueSend(audio_data_q, &pkt, 0) != pdPASS) {
+                ESP_LOGW(TAG, "data queue full, dropping %d bytes", pkt.len);
+                xQueueSend(audio_free_q, &pkt, 0);
             }
         }
     }
+    vTaskDelete(NULL);
+}
 
-    audio_free(voiceData);
+/* ==================== 消费者：只发网络，不碰录音 ==================== */
+static void voice_send_task(void *args)
+{
+    audio_pkt_t pkt;
+
+    while (true) {
+        if (xQueueReceive(audio_data_q, &pkt, portMAX_DELAY) != pdPASS) {
+            continue;
+        }
+
+        if (pkt.len <= 0 || pkt.data == NULL) {
+            esp_websocket_client_send_text(client, "STOP", 4, portMAX_DELAY);
+            ESP_LOGW(TAG, "voice send stopped");
+            continue;
+        }
+
+        int sent = esp_websocket_client_send_bin(client, pkt.data,
+                                                  pkt.len, portMAX_DELAY);
+        if (sent <= 0) {
+            ESP_LOGE(TAG, "websocket send failed: %d", sent);
+        }
+
+        xQueueSend(audio_free_q, &pkt, portMAX_DELAY);
+    }
     vTaskDelete(NULL);
 }
 
@@ -251,7 +335,7 @@ static void start_recorder()
     cfg.sr_handle = recorder_sr_create(&recorder_sr_cfg, &cfg.sr_iface);
     cfg.event_cb = rec_engine_cb;
     cfg.vad_off = 1500;
-    cfg.vad_start = 400;
+    cfg.vad_start = 300;
     recorder = audio_recorder_create(&cfg);
 }
 
@@ -289,7 +373,7 @@ void my_audio_init(void)
     // [第一节管道]：RAW 输入池 (从 WebSocket 接收数据)
     raw_stream_cfg_t raw_cfg = RAW_STREAM_CFG_DEFAULT();
     raw_cfg.type = AUDIO_STREAM_READER;   // 作为管线的源头
-    raw_cfg.out_rb_size = 128 * 1024;      // 开辟 64K 的大胃口防止网络卡顿
+    raw_cfg.out_rb_size = 64 * 1024;      // 开辟 64K 的大胃口防止网络卡顿
     raw_read_el = raw_stream_init(&raw_cfg);
 
     // [第二节管道]：升频转换器 (16000Hz 转 48000Hz)
@@ -322,10 +406,12 @@ void my_audio_init(void)
     audio_pipeline_run(pipeline);
     
     rec_q = xQueueCreate(3, sizeof(int));
+    audio_pool_init();
     es7210_adc_set_volume(GAIN_37_5DB);
     start_recorder();
-    
-    
-    audio_thread_create(NULL, "read_task", voice_read_task, NULL, 4 * 1024, 5, true, 0);
-   
+
+    audio_thread_create(NULL, "read_task", voice_read_task, NULL, 8 * 1024, 5, true, 0);
+    audio_thread_create(NULL, "send_task", voice_send_task, NULL, 6 * 1024, 3, true, 1);
+
+
 }

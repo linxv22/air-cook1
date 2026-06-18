@@ -503,7 +503,7 @@ void ui_start(void)
     // ✅ Back 按钮（始终先创建）
     btn_back = lv_button_create(scr_detail);
     lv_obj_set_size(btn_back, 90, 45);
-    lv_obj_align(btn_back, LV_ALIGN_BOTTOM_MID, -50, -10);
+    lv_obj_align(btn_back, LV_ALIGN_BOTTOM_MID, -50, -20);
     lv_obj_add_event_cb(btn_back, back_btn_event_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_t * label_back = lv_label_create(btn_back);
     lv_label_set_text(label_back, "返回");
@@ -514,7 +514,7 @@ void ui_start(void)
     // ✅ START 按钮（创建后可见）
     btn_start = lv_button_create(scr_detail);
     lv_obj_set_size(btn_start, 90, 45);
-    lv_obj_align(btn_start, LV_ALIGN_BOTTOM_MID, +50, -10);
+    lv_obj_align(btn_start, LV_ALIGN_BOTTOM_MID, +50, -20);
     lv_obj_set_style_bg_color(btn_start, lv_color_hex(0x187600), 0);
     lv_obj_add_event_cb(btn_start, btn_event_cb, LV_EVENT_CLICKED,
                         (void *)(uintptr_t)BTN_ID_START);
@@ -558,16 +558,16 @@ void ui_start(void)
 
     // ── 停止按钮 ──
     btn_stop_cook = lv_button_create(scr_cooking);
-    lv_obj_set_size(btn_stop_cook, 180, 55);
-    lv_obj_align(btn_stop_cook, LV_ALIGN_BOTTOM_MID, 0, -25);
+    lv_obj_set_size(btn_stop_cook, 90, 45);
+    lv_obj_align(btn_stop_cook, LV_ALIGN_BOTTOM_MID, +50, -20);
     lv_obj_set_style_bg_color(btn_stop_cook, lv_color_hex(0xFF0000), 0);
     lv_obj_set_style_bg_color(btn_stop_cook, lv_color_hex(0xCC0000), LV_STATE_PRESSED);
     lv_obj_set_style_radius(btn_stop_cook, 12, 0);
     lv_obj_add_event_cb(btn_stop_cook, cook_stop_btn_cb, LV_EVENT_CLICKED, NULL);
 
     lv_obj_t * label_stop_cook = lv_label_create(btn_stop_cook);
-    lv_label_set_text(label_stop_cook, "停止烹饪");
-    lv_obj_set_style_text_color(label_stop_cook, lv_color_hex(0xFFFFFF), 0);
+    lv_label_set_text(label_stop_cook, "停止");
+    lv_obj_set_style_text_color(label_stop_cook, lv_color_hex(0x000000), 0);
     lv_obj_set_style_text_font(label_stop_cook, &kaiTI, 0);
     lv_obj_center(label_stop_cook);
 
@@ -576,13 +576,13 @@ void ui_start(void)
     lv_obj_t * complete_title = lv_label_create(scr_complete);
     lv_label_set_text(complete_title, "烹饪完成");
     lv_obj_set_style_text_color(complete_title, lv_color_hex(0x006aff), 0);
-    lv_obj_set_style_text_font(complete_title, &kaiTI, 0); // 大字体
+    lv_obj_set_style_text_font(complete_title, &kaiTI, 0);
     lv_obj_align(complete_title, LV_ALIGN_CENTER, 0, -40);
 
     // 提示文字
     lv_obj_t * complete_hint = lv_label_create(scr_complete);
     lv_label_set_text(complete_hint, "享受美食吧");
-    lv_obj_set_style_text_font(complete_hint, &kaiTI, 0); // 大字体
+    lv_obj_set_style_text_font(complete_hint, &kaiTI, 0);
     lv_obj_set_style_text_color(complete_hint, lv_color_hex(0x333333), 0);
     lv_obj_align(complete_hint, LV_ALIGN_CENTER, 0, 10);
 
