@@ -64,8 +64,10 @@ typedef enum {
     //音频事件更新
     EVENT_AUDIO_CMD,    // 音频事件：检测到说话了
     //云端事件更新
-    EVENT_CLOUD_DATA, // 云端事件：云端发来了新的烹饪参数或者控制指令
-    EVENT_CLOUD_CMD,  // 云端事件：云端发来了新的控制指令（例如直接说“开始吧”之类的）
+    EVENT_CLOUD_DATA,    // 云端事件：云端发来了烹饪参数（cook/schedule 指令携带的食谱数据）
+    EVENT_CLOUD_CMD,     // 云端事件：云端发来了控制指令（start/stop/pause）
+    EVENT_CLOUD_SCHEDULE,// 云端事件：云端发来了预约烹饪指令
+    EVENT_CLOUD_REPLY,   // 云端事件：云端发来了需要展示/播报的文本（welcome/chat/各指令的reply字段）
     
 } air_cooker_event_id_t;
 
@@ -88,6 +90,7 @@ typedef struct {
     float temperature;//设定温度
     uint32_t time_s;//设定烹饪时间
     fan_speed_t fan_speed;//设定风扇速度
+    char food_name[32];//食物名称
 } cook_config_t;
 
 //云端数据结构体
@@ -96,7 +99,13 @@ typedef struct {
     uint32_t time_s;//剩余时间
     fan_speed_t fan_speed;//当前风扇速度
     char food_name[32];//当前食物名称
+    char reply[128];//TTS播报/LCD显示文本
 } cloud_data_t;
+
+//云端文本回复（welcome/chat 等纯展示消息）
+typedef struct {
+    char reply[256];//TTS播报/LCD显示文本
+} reply_data_t;
 
 //云端命令结构体
 typedef enum {
@@ -104,6 +113,15 @@ typedef enum {
     cloud_cmd_stop,      // 云端发来停止烹饪的命令
     cloud_cmd_pause,     // 云端发来暂停烹饪的命令
 } cloud_cmd_t;
+
+// 预约烹饪数据结构体
+typedef struct {
+    float temperature;
+    uint32_t time_s;
+    fan_speed_t fan_speed;
+    char food_name[32];
+    char scheduled_at[24];  // "YYYY-MM-DD-HH:mm:ss"
+} schedule_data_t;
 
 //设备wifi状态结构体
 typedef enum{

@@ -109,10 +109,14 @@ void app_event_handler(void* handler_arg, esp_event_base_t base, int32_t id, voi
             break;
         }
         case EVENT_CLOUD_DATA: {
-            cloud_data_t *cloud_data = (cloud_data_t *)event_data;    
+            cloud_data_t *cloud_data = (cloud_data_t *)event_data;
+            // 显示 reply 文本（TTS 播报 + LCD 显示）
+            if (cloud_data->reply[0] != '\0') {
+                ui_show_reply(cloud_data->reply);
+            }
             if(aircook_getstate() == cook_stopped) { // 只有在空闲状态才接受云端命令开始烹饪
                 ui_show_cloud_detail(cloud_data); // 先展示云端数据到界面上
-                ESP_LOGI(TAG, "Logic: Cloud command executed! Temp: %.1f C, Time: %ld s, Fan Enum: %d, Food: %s", 
+                ESP_LOGI(TAG, "Logic: Cloud command executed! Temp: %.1f C, Time: %ld s, Fan Enum: %d, Food: %s",
                          cloud_data->temperature, cloud_data->time_s, cloud_data->fan_speed, cloud_data->food_name);
             } else {
                 ESP_LOGW(TAG, "Logic: Cannot execute cloud command, current state is not stopped!");
@@ -135,6 +139,30 @@ void app_event_handler(void* handler_arg, esp_event_base_t base, int32_t id, voi
                 // 暂停功能暂不支持，先记录日志
                 ESP_LOGI(TAG, "Logic: Cloud command to PAUSE cooking received, but PAUSE is not implemented yet.");
             }
+            break;
+        }
+        case EVENT_CLOUD_SCHEDULE: {
+            schedule_data_t *sched = (schedule_data_t *)event_data;
+            ESP_LOGI(TAG, "Logic: Schedule received - Food: %s, Temp: %.1f C, Time: %ld s, At: %s",
+                     sched->food_name, sched->temperature, sched->time_s, sched->scheduled_at);
+            // 保存预约参数到 V220 底层
+            aircook_set_tem(sched->temperature);
+            aircook_set_speed(sched->fan_speed);
+            aircook_set_food_name(sched->food_name);
+            // 更新 UI 显示预约信息
+            cloud_data_t cloud_data;
+            cloud_data.temperature = sched->temperature;
+            cloud_data.time_s = sched->time_s;
+            cloud_data.fan_speed = sched->fan_speed;
+            snprintf(cloud_data.food_name, sizeof(cloud_data.food_name), "%s", sched->food_name);
+            ui_show_cloud_detail(&cloud_data);
+            // 注意：服务器会在预约时间前2秒下发 schedule，ESP32 收到后等待到精确时间再启动
+            break;
+        }
+        case EVENT_CLOUD_REPLY: {
+            reply_data_t *rd = (reply_data_t *)event_data;
+            ESP_LOGI(TAG, "Logic: Cloud reply received: %s", rd->reply);
+            ui_show_reply(rd->reply);  // LCD 显示 + 后续可接入 TTS 播报
             break;
         }
 
@@ -169,23 +197,42 @@ static void status_report_task(void *arg)
 
     ESP_LOGI(TAG, "Status report task started");
 
+    // ── 停止状态上报计数器（连续上报2次 stopped 后切 idle）──
+    int stopped_report_count = 0;
+
     while (1) {
         // ── 读当前状态 ──
         cook_state_t state = aircook_getstate();
         float temp         = ntc_adc_read_temperature();
-        int   remaining    = aircook_gettime();
-        fan_speed_t fan_level = aircook_get_fan_level();
-        const char *fan_str = "Low";
-        if (fan_level == fan_high)  fan_str = "High";
-        else if (fan_level == fan_mid) fan_str = "Middle";
+        int   time_left    = aircook_gettime();
+        float target_temp  = aircook_get_target_temp();
+        int   fan_int      = aircook_get_fan_level_int();  // 0=高, 1=中, 2=低
+        const char *food_name = aircook_get_food_name();
+
+        // ── 确定上报 state 字符串 ──
+        const char *state_str = "idle";
+        if (state == cook_running) {
+            state_str = "running";
+            stopped_report_count = 0;
+        } else if (state == cook_stopped) {
+            // 刚停止时连续上报 2 次 stopped，之后切为 idle
+            if (stopped_report_count < 2) {
+                state_str = "stopped";
+                stopped_report_count++;
+            } else {
+                state_str = "idle";
+            }
+        } else {
+            // cook_paused / cook_cooling_down / cook_error 都按 idle 上报
+            state_str = "idle";
+        }
 
         char buf[256];
-        const char *state_str =
-            (state == cook_running) ? "running" : "stopped";
         int n = snprintf(buf, sizeof(buf),
-         "{\"type\":\"status\",\"state\":\"%s\","
-         "\"temp\":%.1f,\"remaining\":%d,\"fan\":\"%s\"}",
-         state_str, temp, remaining, fan_str);
+            "{\"action\":\"status\",\"temp\":%.1f,\"target_temp\":%.0f,"
+            "\"time_left\":%d,\"state\":\"%s\",\"food_name\":\"%s\",\"funSpeed\":%d}",
+            temp, target_temp, time_left,
+            state_str, food_name, fan_int);
 
         // ── 发送 ──
         if (esp_websocket_client_is_connected(client) && n > 0 && n < sizeof(buf)) {

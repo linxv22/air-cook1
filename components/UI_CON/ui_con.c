@@ -20,7 +20,8 @@ static const char *TAG = "UI_CON";
 static cook_config_t current_config = {
     .temperature = 180.0f,
     .time_s = 15 * 60,
-    .fan_speed = fan_mid
+    .fan_speed = fan_mid,
+    .food_name = "",
 };
 
 static wind_state_t current_wind_state = wind_main; // 当前窗口状态，默认主页面
@@ -51,6 +52,7 @@ static lv_obj_t * scr_cooking = NULL; // 烹饪中界面
 static lv_obj_t * time_label = NULL; // 顶层状态栏的当前时间
 static lv_obj_t * wifi_icon = NULL;
 static lv_obj_t * mic_icon = NULL;
+static lv_obj_t * reply_label = NULL; // 底部回复文字显示
 
 // 详细界面句柄
 static lv_obj_t * Tem_label = NULL; // 详细界面显示当前温度的标签
@@ -149,13 +151,15 @@ static void btn_event_cb(lv_event_t * e)
                         break;
                 }
                 break;
-            case BTN_ID_START: 
+            case BTN_ID_START:
                 {
                     cook_config_t cfg = {
                         .temperature = current_config.temperature,
                         .time_s = current_config.time_s,
                         .fan_speed = current_config.fan_speed,
+                        .food_name = "",
                     };
+                    snprintf(cfg.food_name, sizeof(cfg.food_name), "%s", current_config.food_name);
                     esp_event_post_to(loop_handle, AIR_COOKER_EVENTS, EVENT_CMD_aircook,
                                     &cfg, sizeof(cfg), 0);
 
@@ -197,16 +201,19 @@ static void preset_btn_event_cb(lv_event_t * e)
             current_config.temperature = 180.0f;
             current_config.time_s = 15 * 60;
             current_config.fan_speed = fan_low;
+            snprintf(current_config.food_name, sizeof(current_config.food_name), "薯条");
             lv_label_set_text(label_set_food, "薯条");
         } else if (btn_id == BTN_ID_PRESET_CHICKEN) {
             current_config.temperature = 200.0f;
             current_config.time_s = 25 * 60;
             current_config.fan_speed = fan_high;
+            snprintf(current_config.food_name, sizeof(current_config.food_name), "炸鸡");
             lv_label_set_text(label_set_food, "炸鸡");
         } else if (btn_id == BTN_ID_PRESET_STEAK) {
             current_config.temperature = 200.0f;
             current_config.time_s = 12 * 60;
             current_config.fan_speed = fan_high;
+            snprintf(current_config.food_name, sizeof(current_config.food_name), "牛排");
             lv_label_set_text(label_set_food, "牛排");
         }
         
@@ -407,6 +414,15 @@ void ui_start(void)
     lv_label_set_text(mic_icon, "\uf130"); 
     lv_obj_set_style_text_font(mic_icon, &my_font, 0);
     lv_obj_align_to(mic_icon, wifi_icon, LV_ALIGN_OUT_LEFT_MID, -10, 0); // 在 Wifi 图标左边 10 像素
+
+    // 底部: 服务器下发的 reply 文本显示
+    reply_label = lv_label_create(top_layer);
+    lv_label_set_text(reply_label, "");
+    lv_obj_set_style_text_color(reply_label, lv_color_hex(0x333333), 0);
+    lv_obj_set_style_text_font(reply_label, &kaiTI, 0);
+    lv_obj_align(reply_label, LV_ALIGN_BOTTOM_MID, 0, -10);
+    lv_label_set_long_mode(reply_label, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(reply_label, 280);
 
     // =========== 3. 绘制主界面 (scr_main) ===========
     // 标题
@@ -702,6 +718,7 @@ void ui_show_cloud_detail(cloud_data_t *data)
     current_config.temperature = data->temperature;
     current_config.time_s      = data->time_s;
     current_config.fan_speed   = data->fan_speed;
+    snprintf(current_config.food_name, sizeof(current_config.food_name), "%s", data->food_name);
 
     // 2. 更新 scr_detail 上的显示值
     lv_label_set_text_fmt(label_set_temp, "%d °C", (int)current_config.temperature);
@@ -726,7 +743,9 @@ void ui_cloud_start(void)
         .temperature = current_config.temperature,
         .time_s      = current_config.time_s,
         .fan_speed   = current_config.fan_speed,
+        .food_name   = "",
     };
+    snprintf(cfg.food_name, sizeof(cfg.food_name), "%s", current_config.food_name);
     esp_event_post_to(loop_handle, AIR_COOKER_EVENTS, EVENT_CMD_aircook,
                       &cfg, sizeof(cfg), 0);
 
@@ -747,5 +766,14 @@ void ui_cloud_start(void)
 
     // ✅ 切换到烹饪界面
     lv_scr_load(scr_cooking);
+    _lock_release(&lvgl_api_lock);
+}
+
+// ✅ 显示服务器下发的 reply 文本（welcome/chat/各指令的确认语）
+void ui_show_reply(const char *text)
+{
+    if (text == NULL || reply_label == NULL) return;
+    _lock_acquire(&lvgl_api_lock);
+    lv_label_set_text(reply_label, text);
     _lock_release(&lvgl_api_lock);
 }

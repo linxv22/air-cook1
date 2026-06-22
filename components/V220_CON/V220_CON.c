@@ -28,6 +28,8 @@ static run_config_t current_config = {
     .state = cook_stopped
 }; // 当前烹饪配置
 
+static char current_food_name[32] = {0}; // 当前食物名称
+
 //函数声明
 static void V220_HOT_CON(bool con);
 static void V220_FAN_CON(bool con ,uint32_t speed);
@@ -256,8 +258,13 @@ void v220_con_init(void)
 void aircook_start(cook_config_t *config)
 {
     // 更新全局配置时间和温度
-    current_config.time_s = config->time_s; 
+    current_config.time_s = config->time_s;
     current_config.temperature = config->temperature;
+
+    // 保存食物名称
+    if (config->food_name[0] != '\0') {
+        snprintf(current_food_name, sizeof(current_food_name), "%s", config->food_name);
+    }
 
     // 根据传入的枚举值确定硬件的实际风速百分比
         switch (config->fan_speed) {
@@ -370,4 +377,31 @@ fan_speed_t aircook_get_fan_level(void)
     if (current_config.SPEED >= 83) return fan_high;
     if (current_config.SPEED >= 70) return fan_mid;
     return fan_low;
+}
+
+int aircook_get_fan_level_int(void)
+{
+    // 直接返回 funSpeed 格式：0=高, 1=中, 2=低
+    if (current_config.SPEED >= 83) return 0;
+    if (current_config.SPEED >= 70) return 1;
+    return 2;
+}
+
+float aircook_get_target_temp(void)
+{
+    return current_config.temperature;
+}
+
+const char* aircook_get_food_name(void)
+{
+    return current_food_name;
+}
+
+void aircook_set_food_name(const char *name)
+{
+    if (name) {
+        snprintf(current_food_name, sizeof(current_food_name), "%s", name);
+    } else {
+        current_food_name[0] = '\0';
+    }
 }
