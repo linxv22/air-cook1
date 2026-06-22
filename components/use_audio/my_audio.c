@@ -373,7 +373,7 @@ void my_audio_init(void)
     // [第一节管道]：RAW 输入池 (从 WebSocket 接收数据)
     raw_stream_cfg_t raw_cfg = RAW_STREAM_CFG_DEFAULT();
     raw_cfg.type = AUDIO_STREAM_READER;   // 作为管线的源头
-    raw_cfg.out_rb_size = 64 * 1024;      // 开辟 64K 的大胃口防止网络卡顿
+    raw_cfg.out_rb_size = 128 * 1024;      // 开辟 128K 的大胃口防止网络卡顿
     raw_read_el = raw_stream_init(&raw_cfg);
 
     // [第二节管道]：升频转换器 (16000Hz 转 48000Hz)

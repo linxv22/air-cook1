@@ -4,23 +4,34 @@
 #include "LCD.h"
 #include "WIFI.h"
 #include "ui_con.h"
+#include "my_audio.h"
 
 #include "lvgl.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "my_audio.h"
+#include "esp_websocket_client.h"
 
 static const char *TAG = "app_task";
 extern _lock_t lvgl_api_lock;
 esp_event_loop_handle_t loop_handle;
 ESP_EVENT_DEFINE_BASE(AIR_COOKER_EVENTS);
 
+/* ================================================================
+ *  状态上报任务 — 定时向服务器报告当前温度/状态/剩余时间
+ * ================================================================ */
+#define REPORT_ACTIVE_MS    5000      // 烹饪中 5 秒一次
+#define REPORT_IDLE_MS      30000      // 空闲中 30 秒一次
+#define REPORT_TASK_STACK  (6 * 1024)
+#define REPORT_TASK_PRIO    3
 
 // 工作状态，当前时间，当前温度，风扇转速，剩余时间，联网状态（顶层右上角WiFI小标志），语音识别的界面（识别到主人说话了就弹出，涉及到LVGL加字库）
 
 WIFI_state_t WIFI_STATE = WIFI_STATE_INIT;
 
+extern esp_websocket_client_handle_t client;  // ws_audio.c 里的全局变量
+
+static void status_report_task(void *arg);
 // ================= 事件中枢 (统一处理底层控制逻辑) =================
 void app_event_handler(void* handler_arg, esp_event_base_t base, int32_t id, void* event_data)
 {
@@ -78,6 +89,12 @@ void app_event_handler(void* handler_arg, esp_event_base_t base, int32_t id, voi
             ui_wifi_up(WIFI_STATE);
             time_sntp_init();
             websocket_clint_init();
+            xTaskCreatePinnedToCoreWithCaps(
+                status_report_task, "status_rpt",
+                REPORT_TASK_STACK, NULL, 3, NULL,
+                tskNO_AFFINITY,
+                MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT   // ← 关键
+            );
             break;
         }
         case EVENT_WIFI_DISCONNECTED:{
@@ -134,11 +151,51 @@ void app_event_init (void)
         .queue_size = 10,
         .task_name = "my_event_task", 
         .task_priority = 5,
-        .task_stack_size = 8 * 1024 ,
+        .task_stack_size = 6 * 1024 ,
         .task_core_id = tskNO_AFFINITY,
     };
 
     ESP_ERROR_CHECK(esp_event_loop_create(&loop_args, &loop_handle));
     ESP_ERROR_CHECK(esp_event_handler_register_with(
     loop_handle, AIR_COOKER_EVENTS, ESP_EVENT_ANY_ID, app_event_handler, NULL));
+}
+
+static void status_report_task(void *arg)
+{
+    // 先等 Wi-Fi 和 WebSocket 就绪
+    while (client == NULL || !esp_websocket_client_is_connected(client)) {
+        vTaskDelay(pdMS_TO_TICKS(5000));
+    }
+
+    ESP_LOGI(TAG, "Status report task started");
+
+    while (1) {
+        // ── 读当前状态 ──
+        cook_state_t state = aircook_getstate();
+        float temp         = ntc_adc_read_temperature();
+        int   remaining    = aircook_gettime();
+        fan_speed_t fan_level = aircook_get_fan_level();
+        const char *fan_str = "Low";
+        if (fan_level == fan_high)  fan_str = "High";
+        else if (fan_level == fan_mid) fan_str = "Middle";
+
+        char buf[256];
+        const char *state_str =
+            (state == cook_running) ? "running" : "stopped";
+        int n = snprintf(buf, sizeof(buf),
+         "{\"type\":\"status\",\"state\":\"%s\","
+         "\"temp\":%.1f,\"remaining\":%d,\"fan\":\"%s\"}",
+         state_str, temp, remaining, fan_str);
+
+        // ── 发送 ──
+        if (esp_websocket_client_is_connected(client) && n > 0 && n < sizeof(buf)) {
+            esp_websocket_client_send_text(client, buf, n,
+                                            pdMS_TO_TICKS(3000));
+            // ESP_LOGI(TAG, "Reported: %s", buf);
+        }
+
+        // ── 间隔 ──
+        int delay = (state == cook_running) ? REPORT_ACTIVE_MS : REPORT_IDLE_MS;
+        vTaskDelay(pdMS_TO_TICKS(delay));
+    }
 }

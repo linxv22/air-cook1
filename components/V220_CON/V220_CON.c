@@ -364,3 +364,10 @@ cook_state_t aircook_getstate(void)
     //          current_config.state, current_config.temperature, current_config.time_s, current_config.SPEED);
     return current_config.state;
 }
+
+fan_speed_t aircook_get_fan_level(void)
+{
+    if (current_config.SPEED >= 83) return fan_high;
+    if (current_config.SPEED >= 70) return fan_mid;
+    return fan_low;
+}

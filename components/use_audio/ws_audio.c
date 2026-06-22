@@ -10,11 +10,7 @@
 #include "app_events.h"
 #include "esp_heap_caps.h"
 
-/* ========== ✨新增：块池配置 ========== */
-#define WS_CHUNK_SIZE    1024        // 每个块 1KB
-#define WS_CHUNK_COUNT   128          // 共 16 块 = 128KB
-#define WS_TASK_STACK    (3 * 1024)  // 喂流任务栈
-#define WS_TASK_PRIO     5           // 喂流任务优先级
+
 
 #define WEBSOCKET_URI "ws://8.162.21.140"
 #define WEBSOCKET_PORT 8765
@@ -25,65 +21,6 @@ esp_websocket_client_handle_t client;
 audio_element_handle_t raw_read_el;
 
 
-
-/* ========== ✨新增：块池相关全局变量 ========== */
-typedef struct {
-    uint8_t *data;      // 指向块池中的某一块
-    int      len;       // 有效数据长度
-} ws_chunk_t;
-
-static uint8_t     *g_chunk_pool = NULL;    // PSRAM 中所有块的基址
-static QueueHandle_t g_data_q    = NULL;    // 回调 → 喂流任务
-static QueueHandle_t g_free_q    = NULL;    // 空闲块队列
-static TaskHandle_t  g_feed_task = NULL;    // 喂流任务句柄
-
-
-/* ========== ✨新增：块池初始化 ========== */
-static esp_err_t chunk_pool_init(void)
-{
-    size_t total = WS_CHUNK_SIZE * WS_CHUNK_COUNT;
-
-    g_chunk_pool = heap_caps_malloc(total, MALLOC_CAP_SPIRAM);
-    if (!g_chunk_pool) {
-        ESP_LOGE(TAG, "chunk pool malloc(%d) failed", total);
-        return ESP_ERR_NO_MEM;
-    }
-
-    g_data_q = xQueueCreate(WS_CHUNK_COUNT, sizeof(ws_chunk_t));
-    g_free_q = xQueueCreate(WS_CHUNK_COUNT, sizeof(ws_chunk_t));
-    if (!g_data_q || !g_free_q) {
-        ESP_LOGE(TAG, "queue create failed");
-        return ESP_ERR_NO_MEM;
-    }
-
-    // 所有块放入空闲队列
-    for (int i = 0; i < WS_CHUNK_COUNT; i++) {
-        ws_chunk_t c = { .data = g_chunk_pool + i * WS_CHUNK_SIZE, .len = 0 };
-        xQueueSend(g_free_q, &c, 0);
-    }
-
-    ESP_LOGI(TAG, "chunk pool: %d x %d bytes = %d bytes",
-             WS_CHUNK_COUNT, WS_CHUNK_SIZE, total);
-    return ESP_OK;
-}
-
-/* ========== ✨新增：喂流任务 ========== */
-static void feed_task(void *arg)
-{
-    ws_chunk_t c;
-
-    while (1) {
-        // 阻塞等数据
-        if (xQueueReceive(g_data_q, &c, portMAX_DELAY) == pdPASS) {
-            if (c.len > 0 && c.data != NULL) {
-                // 写入音频管线（就算这里卡住，也不影响 WS 回调收 TCP）
-                raw_stream_write(raw_read_el, (char *)c.data, c.len);
-            }
-            // 归还块
-            xQueueSend(g_free_q, &c, 0);
-        }
-    }
-}
 
 static void log_error_if_nonzero(const char *message, int error_code)
 {
@@ -109,20 +46,7 @@ static void websocket_event_handler(void *handler_args, esp_event_base_t base,
     case WEBSOCKET_EVENT_DATA:
         /* ========== ✨改动：音频走块池，回调非阻塞 ========== */
         if (data->op_code == 0x2 || data->op_code == 0x0) {
-            ws_chunk_t c;
-            // 非阻塞取空闲块
-            if (xQueueReceive(g_free_q, &c, 0) == pdPASS) {
-                int copy = (data->data_len < WS_CHUNK_SIZE)
-                         ? data->data_len : WS_CHUNK_SIZE;
-                memcpy(c.data, data->data_ptr, copy);
-                c.len = copy;
-                // 非阻塞投递
-                if (xQueueSend(g_data_q, &c, 100) != pdPASS) {
-                    xQueueSend(g_free_q, &c, 100);  // 队列满，归还
-                }
-            }
-            // 没空闲块 → 静默丢帧，回调不阻塞
-
+        raw_stream_write(raw_read_el, data->data_ptr, data->data_len);
         } else if (data->op_code == 0x08) {
             int code = 0;
             if (data->data_len >= 2) {
@@ -186,7 +110,7 @@ static void websocket_event_handler(void *handler_args, esp_event_base_t base,
                     }
                     if (action && cJSON_IsString(action)
                         && strcmp(action->valuestring, "pause") == 0) {
-                        cloud_cmd_t cmd = cloud_cmd_pause;
+                        cloud_cmd_t cmd = cloud_cmd_stop;
                         esp_event_post_to(loop_handle, AIR_COOKER_EVENTS,
                                           EVENT_CLOUD_CMD, &cmd,
                                           sizeof(cloud_cmd_t), 0);
@@ -215,19 +139,9 @@ static void websocket_event_handler(void *handler_args, esp_event_base_t base,
     }
 }
 
-/* ========== ✨改动：init 中加块池和喂流任务 ========== */
+
 void websocket_clint_init(void)
 {
-    // ── 块池 + 喂流任务（只初始化一次）──
-    if (g_chunk_pool == NULL) {
-        if (chunk_pool_init() != ESP_OK) return;
-    }
-    if (g_feed_task == NULL) {
-        xTaskCreate(feed_task, "ws_feed",
-                    WS_TASK_STACK, NULL,
-                    WS_TASK_PRIO, &g_feed_task);
-    }
-
     // ── WebSocket 连接 ──
     esp_websocket_client_config_t websocket_cfg = {
         .uri  = WEBSOCKET_URI,
