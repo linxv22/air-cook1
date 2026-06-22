@@ -35,6 +35,8 @@ uint32_t aircook_gettime(void);
 cook_state_t aircook_getstate(void);
 //获取当前风扇转速百分比
 fan_speed_t aircook_get_fan_level(void);
+//获取当前风扇转速 int（0=高, 1=中, 2=低，对应 funSpeed）
+int aircook_get_fan_level_int(void);
 //获取当前目标温度
 float aircook_get_target_temp(void);
 //获取/设置当前食物名称

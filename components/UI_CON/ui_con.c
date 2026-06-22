@@ -52,6 +52,7 @@ static lv_obj_t * scr_cooking = NULL; // 烹饪中界面
 static lv_obj_t * time_label = NULL; // 顶层状态栏的当前时间
 static lv_obj_t * wifi_icon = NULL;
 static lv_obj_t * mic_icon = NULL;
+static lv_obj_t * reply_label = NULL; // 底部回复文字显示
 
 // 详细界面句柄
 static lv_obj_t * Tem_label = NULL; // 详细界面显示当前温度的标签
@@ -414,6 +415,15 @@ void ui_start(void)
     lv_obj_set_style_text_font(mic_icon, &my_font, 0);
     lv_obj_align_to(mic_icon, wifi_icon, LV_ALIGN_OUT_LEFT_MID, -10, 0); // 在 Wifi 图标左边 10 像素
 
+    // 底部: 服务器下发的 reply 文本显示
+    reply_label = lv_label_create(top_layer);
+    lv_label_set_text(reply_label, "");
+    lv_obj_set_style_text_color(reply_label, lv_color_hex(0x333333), 0);
+    lv_obj_set_style_text_font(reply_label, &kaiTI, 0);
+    lv_obj_align(reply_label, LV_ALIGN_BOTTOM_MID, 0, -10);
+    lv_label_set_long_mode(reply_label, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(reply_label, 280);
+
     // =========== 3. 绘制主界面 (scr_main) ===========
     // 标题
     lv_obj_t * title = lv_label_create(scr_main);
@@ -756,5 +766,14 @@ void ui_cloud_start(void)
 
     // ✅ 切换到烹饪界面
     lv_scr_load(scr_cooking);
+    _lock_release(&lvgl_api_lock);
+}
+
+// ✅ 显示服务器下发的 reply 文本（welcome/chat/各指令的确认语）
+void ui_show_reply(const char *text)
+{
+    if (text == NULL || reply_label == NULL) return;
+    _lock_acquire(&lvgl_api_lock);
+    lv_label_set_text(reply_label, text);
     _lock_release(&lvgl_api_lock);
 }

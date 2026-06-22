@@ -379,6 +379,14 @@ fan_speed_t aircook_get_fan_level(void)
     return fan_low;
 }
 
+int aircook_get_fan_level_int(void)
+{
+    // 直接返回 funSpeed 格式：0=高, 1=中, 2=低
+    if (current_config.SPEED >= 83) return 0;
+    if (current_config.SPEED >= 70) return 1;
+    return 2;
+}
+
 float aircook_get_target_temp(void)
 {
     return current_config.temperature;

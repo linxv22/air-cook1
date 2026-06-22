@@ -109,10 +109,14 @@ void app_event_handler(void* handler_arg, esp_event_base_t base, int32_t id, voi
             break;
         }
         case EVENT_CLOUD_DATA: {
-            cloud_data_t *cloud_data = (cloud_data_t *)event_data;    
+            cloud_data_t *cloud_data = (cloud_data_t *)event_data;
+            // 显示 reply 文本（TTS 播报 + LCD 显示）
+            if (cloud_data->reply[0] != '\0') {
+                ui_show_reply(cloud_data->reply);
+            }
             if(aircook_getstate() == cook_stopped) { // 只有在空闲状态才接受云端命令开始烹饪
                 ui_show_cloud_detail(cloud_data); // 先展示云端数据到界面上
-                ESP_LOGI(TAG, "Logic: Cloud command executed! Temp: %.1f C, Time: %ld s, Fan Enum: %d, Food: %s", 
+                ESP_LOGI(TAG, "Logic: Cloud command executed! Temp: %.1f C, Time: %ld s, Fan Enum: %d, Food: %s",
                          cloud_data->temperature, cloud_data->time_s, cloud_data->fan_speed, cloud_data->food_name);
             } else {
                 ESP_LOGW(TAG, "Logic: Cannot execute cloud command, current state is not stopped!");
@@ -155,9 +159,10 @@ void app_event_handler(void* handler_arg, esp_event_base_t base, int32_t id, voi
             // 注意：服务器会在预约时间前2秒下发 schedule，ESP32 收到后等待到精确时间再启动
             break;
         }
-        case EVENT_CLOUD_BOUND: {
-            ESP_LOGI(TAG, "Logic: Device has been bound to a user!");
-            // 可在 LCD 上显示"已绑定"提示
+        case EVENT_CLOUD_REPLY: {
+            reply_data_t *rd = (reply_data_t *)event_data;
+            ESP_LOGI(TAG, "Logic: Cloud reply received: %s", rd->reply);
+            ui_show_reply(rd->reply);  // LCD 显示 + 后续可接入 TTS 播报
             break;
         }
 
@@ -201,11 +206,7 @@ static void status_report_task(void *arg)
         float temp         = ntc_adc_read_temperature();
         int   time_left    = aircook_gettime();
         float target_temp  = aircook_get_target_temp();
-        fan_speed_t fan_level = aircook_get_fan_level();
-        const char *fan_str = "Low";
-        if (fan_level == fan_high)  fan_str = "High";
-        else if (fan_level == fan_mid) fan_str = "Medium";
-
+        int   fan_int      = aircook_get_fan_level_int();  // 0=高, 1=中, 2=低
         const char *food_name = aircook_get_food_name();
 
         // ── 确定上报 state 字符串 ──
@@ -228,11 +229,10 @@ static void status_report_task(void *arg)
 
         char buf[256];
         int n = snprintf(buf, sizeof(buf),
-            "{\"type\":\"status\",\"state\":\"%s\","
-            "\"temp\":%.1f,\"target_temp\":%.0f,"
-            "\"time_left\":%d,\"food_name\":\"%s\",\"fan_speed\":\"%s\"}",
-            state_str, temp, target_temp,
-            time_left, food_name, fan_str);
+            "{\"action\":\"status\",\"temp\":%.1f,\"target_temp\":%.0f,"
+            "\"time_left\":%d,\"state\":\"%s\",\"food_name\":\"%s\",\"funSpeed\":%d}",
+            temp, target_temp, time_left,
+            state_str, food_name, fan_int);
 
         // ── 发送 ──
         if (esp_websocket_client_is_connected(client) && n > 0 && n < sizeof(buf)) {

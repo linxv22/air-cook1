@@ -54,7 +54,7 @@ static void websocket_event_handler(void *handler_args, esp_event_base_t base,
             }
             ESP_LOGW(TAG, "Received close frame, code=%d", code);
         }
-        /* ========== JSON 命令解析：支持 type 字段（优先）和 action 字段（兼容） ========== */
+        /* ========== JSON 命令解析：以 action 字段路由，funSpeed 为 int ========== */
         if (data->op_code == 0x1) {
             cJSON *root = cJSON_ParseWithLength(data->data_ptr, data->data_len);
             if (root) {
@@ -64,108 +64,152 @@ static void websocket_event_handler(void *handler_args, esp_event_base_t base,
                     free(json_str);
                 }
                 if (cJSON_IsObject(root)) {
-                    // ── 提取通用字段 ──
-                    cJSON *temp      = cJSON_GetObjectItem(root, "temp");
-                    cJSON *time      = cJSON_GetObjectItem(root, "time");
-                    cJSON *food      = cJSON_GetObjectItem(root, "food");
-                    cJSON *fan_speed_json = cJSON_GetObjectItem(root, "fan_speed");
-                    cJSON *funSpeed  = cJSON_GetObjectItem(root, "funSpeed");  // 兼容旧字段名
-
-                    // ── 消息类型：优先读 type，兼容 action ──
-                    cJSON *type_json  = cJSON_GetObjectItem(root, "type");
-                    cJSON *action     = cJSON_GetObjectItem(root, "action");
-                    const char *msg_type = NULL;
-                    if (type_json && cJSON_IsString(type_json)) {
-                        msg_type = type_json->valuestring;
-                    } else if (action && cJSON_IsString(action)) {
-                        msg_type = action->valuestring;  // 向后兼容
+                    // ── 消息路由：读 action 字段 ──
+                    cJSON *action_json = cJSON_GetObjectItem(root, "action");
+                    const char *action = NULL;
+                    if (action_json && cJSON_IsString(action_json)) {
+                        action = action_json->valuestring;
                     }
 
-                    // ── 风扇转速：优先 fan_speed，兼容 funSpeed ──
-                    int fan_val = -1;
-                    if (fan_speed_json && cJSON_IsString(fan_speed_json)) {
-                        if (strcmp(fan_speed_json->valuestring, "High") == 0)      fan_val = fan_high;
-                        else if (strcmp(fan_speed_json->valuestring, "Medium") == 0) fan_val = fan_mid;
-                        else if (strcmp(fan_speed_json->valuestring, "Low") == 0)   fan_val = fan_low;
-                    } else if (funSpeed && cJSON_IsNumber(funSpeed)) {
-                        fan_val = (int)funSpeed->valuedouble;  // 兼容旧数字格式
+                    // ── 通用字段提取 ──
+                    cJSON *temp_json   = cJSON_GetObjectItem(root, "temp");
+                    cJSON *time_json   = cJSON_GetObjectItem(root, "time");
+                    cJSON *food_json   = cJSON_GetObjectItem(root, "food");
+                    cJSON *funSpeed    = cJSON_GetObjectItem(root, "funSpeed");
+                    cJSON *reply_json  = cJSON_GetObjectItem(root, "reply");
+                    const char *reply_str = (reply_json && cJSON_IsString(reply_json))
+                                            ? reply_json->valuestring : NULL;
+
+                    if (action == NULL) {
+                        ESP_LOGW(TAG, "JSON missing 'action' field, ignored");
+                        cJSON_Delete(root);
+                        break;
+                    }
+                    ESP_LOGI(TAG, "Action: %s", action);
+
+                    // ── 风扇转速：funSpeed 为 int（0=高, 1=中, 2=低）──
+                    int fan_val = fan_low;
+                    if (funSpeed && cJSON_IsNumber(funSpeed)) {
+                        int fs = (int)funSpeed->valuedouble;
+                        if (fs >= 0 && fs <= 2) fan_val = fs;
                     }
 
-                    if (msg_type) {
-                        ESP_LOGI(TAG, "Message type: %s", msg_type);
-
-                        // ========== cook：开始烹饪 ==========
-                        if (strcmp(msg_type, "cook") == 0) {
-                            cloud_data_t cook_json = {
-                                .temperature = temp ? (float)temp->valuedouble : 0.0f,
-                                .time_s      = time ? (int)time->valuedouble : 0,
-                                .fan_speed   = (fan_val >= 0) ? (fan_speed_t)fan_val : fan_low,
-                                .food_name   = "",
-                            };
-                            if (food && cJSON_IsString(food)) {
-                                snprintf(cook_json.food_name,
-                                         sizeof(cook_json.food_name),
-                                         "%s", food->valuestring);
-                            }
+                    // ========== cook：开始烹饪 ==========
+                    if (strcmp(action, "cook") == 0) {
+                        cloud_data_t cook_json = {
+                            .temperature = temp_json ? (float)temp_json->valuedouble : 0.0f,
+                            .time_s      = time_json ? (int)time_json->valuedouble : 0,
+                            .fan_speed   = (fan_speed_t)fan_val,
+                            .food_name   = "",
+                            .reply       = "",
+                        };
+                        if (food_json && cJSON_IsString(food_json)) {
+                            snprintf(cook_json.food_name, sizeof(cook_json.food_name),
+                                     "%s", food_json->valuestring);
+                        }
+                        if (reply_str) {
+                            snprintf(cook_json.reply, sizeof(cook_json.reply),
+                                     "%s", reply_str);
+                        }
+                        esp_event_post_to(loop_handle, AIR_COOKER_EVENTS,
+                                          EVENT_CLOUD_DATA, &cook_json,
+                                          sizeof(cloud_data_t), 0);
+                    }
+                    // ========== start：确认开始加热 ==========
+                    else if (strcmp(action, "start") == 0) {
+                        cloud_cmd_t cmd = cloud_cmd_start;
+                        esp_event_post_to(loop_handle, AIR_COOKER_EVENTS,
+                                          EVENT_CLOUD_CMD, &cmd,
+                                          sizeof(cloud_cmd_t), 0);
+                        if (reply_str) {
+                            reply_data_t rd;
+                            snprintf(rd.reply, sizeof(rd.reply), "%s", reply_str);
                             esp_event_post_to(loop_handle, AIR_COOKER_EVENTS,
-                                              EVENT_CLOUD_DATA, &cook_json,
-                                              sizeof(cloud_data_t), 0);
+                                              EVENT_CLOUD_REPLY, &rd,
+                                              sizeof(reply_data_t), 0);
                         }
-                        // ========== start：直接开始烹饪（不带参数）==========
-                        else if (strcmp(msg_type, "start") == 0) {
-                            cloud_cmd_t cmd = cloud_cmd_start;
+                    }
+                    // ========== stop：停止烹饪 ==========
+                    else if (strcmp(action, "stop") == 0) {
+                        cloud_cmd_t cmd = cloud_cmd_stop;
+                        esp_event_post_to(loop_handle, AIR_COOKER_EVENTS,
+                                          EVENT_CLOUD_CMD, &cmd,
+                                          sizeof(cloud_cmd_t), 0);
+                        if (reply_str) {
+                            reply_data_t rd;
+                            snprintf(rd.reply, sizeof(rd.reply), "%s", reply_str);
                             esp_event_post_to(loop_handle, AIR_COOKER_EVENTS,
-                                              EVENT_CLOUD_CMD, &cmd,
-                                              sizeof(cloud_cmd_t), 0);
+                                              EVENT_CLOUD_REPLY, &rd,
+                                              sizeof(reply_data_t), 0);
                         }
-                        // ========== stop：停止烹饪 ==========
-                        else if (strcmp(msg_type, "stop") == 0) {
-                            cloud_cmd_t cmd = cloud_cmd_stop;
+                    }
+                    // ========== pause：暂停烹饪 ==========
+                    else if (strcmp(action, "pause") == 0) {
+                        cloud_cmd_t cmd = cloud_cmd_pause;
+                        esp_event_post_to(loop_handle, AIR_COOKER_EVENTS,
+                                          EVENT_CLOUD_CMD, &cmd,
+                                          sizeof(cloud_cmd_t), 0);
+                        if (reply_str) {
+                            reply_data_t rd;
+                            snprintf(rd.reply, sizeof(rd.reply), "%s", reply_str);
                             esp_event_post_to(loop_handle, AIR_COOKER_EVENTS,
-                                              EVENT_CLOUD_CMD, &cmd,
-                                              sizeof(cloud_cmd_t), 0);
+                                              EVENT_CLOUD_REPLY, &rd,
+                                              sizeof(reply_data_t), 0);
                         }
-                        // ========== pause：暂停烹饪 ==========
-                        else if (strcmp(msg_type, "pause") == 0) {
-                            cloud_cmd_t cmd = cloud_cmd_pause;
+                    }
+                    // ========== schedule：预约烹饪 ==========
+                    else if (strcmp(action, "schedule") == 0) {
+                        schedule_data_t sched = {
+                            .temperature = temp_json ? (float)temp_json->valuedouble : 0.0f,
+                            .time_s      = time_json ? (int)time_json->valuedouble : 0,
+                            .fan_speed   = (fan_speed_t)fan_val,
+                            .food_name   = "",
+                            .scheduled_at = "",
+                        };
+                        if (food_json && cJSON_IsString(food_json)) {
+                            snprintf(sched.food_name, sizeof(sched.food_name),
+                                     "%s", food_json->valuestring);
+                        }
+                        cJSON *sched_at = cJSON_GetObjectItem(root, "scheduled_at");
+                        if (sched_at && cJSON_IsString(sched_at)) {
+                            snprintf(sched.scheduled_at, sizeof(sched.scheduled_at),
+                                     "%s", sched_at->valuestring);
+                        }
+                        esp_event_post_to(loop_handle, AIR_COOKER_EVENTS,
+                                          EVENT_CLOUD_SCHEDULE, &sched,
+                                          sizeof(schedule_data_t), 0);
+                        if (reply_str) {
+                            reply_data_t rd;
+                            snprintf(rd.reply, sizeof(rd.reply), "%s", reply_str);
                             esp_event_post_to(loop_handle, AIR_COOKER_EVENTS,
-                                              EVENT_CLOUD_CMD, &cmd,
-                                              sizeof(cloud_cmd_t), 0);
+                                              EVENT_CLOUD_REPLY, &rd,
+                                              sizeof(reply_data_t), 0);
                         }
-                        // ========== schedule：预约烹饪 ==========
-                        else if (strcmp(msg_type, "schedule") == 0) {
-                            schedule_data_t sched = {
-                                .temperature = temp ? (float)temp->valuedouble : 0.0f,
-                                .time_s      = time ? (int)time->valuedouble : 0,
-                                .fan_speed   = (fan_val >= 0) ? (fan_speed_t)fan_val : fan_low,
-                                .food_name   = "",
-                                .scheduled_at = "",
-                            };
-                            if (food && cJSON_IsString(food)) {
-                                snprintf(sched.food_name, sizeof(sched.food_name),
-                                         "%s", food->valuestring);
-                            }
-                            cJSON *sched_at = cJSON_GetObjectItem(root, "scheduled_at");
-                            if (sched_at && cJSON_IsString(sched_at)) {
-                                snprintf(sched.scheduled_at, sizeof(sched.scheduled_at),
-                                         "%s", sched_at->valuestring);
-                            }
+                    }
+                    // ========== welcome：连接欢迎消息 ==========
+                    else if (strcmp(action, "welcome") == 0) {
+                        ESP_LOGI(TAG, "Welcome message received");
+                        if (reply_str) {
+                            reply_data_t rd;
+                            snprintf(rd.reply, sizeof(rd.reply), "%s", reply_str);
                             esp_event_post_to(loop_handle, AIR_COOKER_EVENTS,
-                                              EVENT_CLOUD_SCHEDULE, &sched,
-                                              sizeof(schedule_data_t), 0);
+                                              EVENT_CLOUD_REPLY, &rd,
+                                              sizeof(reply_data_t), 0);
                         }
-                        // ========== bound：设备已绑定 ==========
-                        else if (strcmp(msg_type, "bound") == 0) {
-                            cJSON *user_id = cJSON_GetObjectItem(root, "user_id");
-                            if (user_id && cJSON_IsString(user_id)) {
-                                ESP_LOGI(TAG, "Device bound to user: %s", user_id->valuestring);
-                            }
+                    }
+                    // ========== chat：闲聊回复 ==========
+                    else if (strcmp(action, "chat") == 0) {
+                        ESP_LOGI(TAG, "Chat reply received");
+                        if (reply_str) {
+                            reply_data_t rd;
+                            snprintf(rd.reply, sizeof(rd.reply), "%s", reply_str);
                             esp_event_post_to(loop_handle, AIR_COOKER_EVENTS,
-                                              EVENT_CLOUD_BOUND, NULL, 0, 0);
+                                              EVENT_CLOUD_REPLY, &rd,
+                                              sizeof(reply_data_t), 0);
                         }
-                        else {
-                            ESP_LOGW(TAG, "Unknown message type: %s", msg_type);
-                        }
+                    }
+                    else {
+                        ESP_LOGW(TAG, "Unknown action: %s", action);
                     }
                 }
                 cJSON_Delete(root);
