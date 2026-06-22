@@ -76,10 +76,7 @@ static void websocket_event_handler(void *handler_args, esp_event_base_t base,
                     cJSON *time_json   = cJSON_GetObjectItem(root, "time");
                     cJSON *food_json   = cJSON_GetObjectItem(root, "food");
                     cJSON *funSpeed    = cJSON_GetObjectItem(root, "funSpeed");
-                    cJSON *reply_json  = cJSON_GetObjectItem(root, "reply");
-                    const char *reply_str = (reply_json && cJSON_IsString(reply_json))
-                                            ? reply_json->valuestring : NULL;
-
+                    // cJSON *reply_json  = cJSON_GetObjectItem(root, "reply");
                     if (action == NULL) {
                         ESP_LOGW(TAG, "JSON missing 'action' field, ignored");
                         cJSON_Delete(root);
@@ -101,15 +98,10 @@ static void websocket_event_handler(void *handler_args, esp_event_base_t base,
                             .time_s      = time_json ? (int)time_json->valuedouble : 0,
                             .fan_speed   = (fan_speed_t)fan_val,
                             .food_name   = "",
-                            .reply       = "",
                         };
                         if (food_json && cJSON_IsString(food_json)) {
                             snprintf(cook_json.food_name, sizeof(cook_json.food_name),
                                      "%s", food_json->valuestring);
-                        }
-                        if (reply_str) {
-                            snprintf(cook_json.reply, sizeof(cook_json.reply),
-                                     "%s", reply_str);
                         }
                         esp_event_post_to(loop_handle, AIR_COOKER_EVENTS,
                                           EVENT_CLOUD_DATA, &cook_json,
@@ -121,13 +113,6 @@ static void websocket_event_handler(void *handler_args, esp_event_base_t base,
                         esp_event_post_to(loop_handle, AIR_COOKER_EVENTS,
                                           EVENT_CLOUD_CMD, &cmd,
                                           sizeof(cloud_cmd_t), 0);
-                        if (reply_str) {
-                            reply_data_t rd;
-                            snprintf(rd.reply, sizeof(rd.reply), "%s", reply_str);
-                            esp_event_post_to(loop_handle, AIR_COOKER_EVENTS,
-                                              EVENT_CLOUD_REPLY, &rd,
-                                              sizeof(reply_data_t), 0);
-                        }
                     }
                     // ========== stop：停止烹饪 ==========
                     else if (strcmp(action, "stop") == 0) {
@@ -135,13 +120,7 @@ static void websocket_event_handler(void *handler_args, esp_event_base_t base,
                         esp_event_post_to(loop_handle, AIR_COOKER_EVENTS,
                                           EVENT_CLOUD_CMD, &cmd,
                                           sizeof(cloud_cmd_t), 0);
-                        if (reply_str) {
-                            reply_data_t rd;
-                            snprintf(rd.reply, sizeof(rd.reply), "%s", reply_str);
-                            esp_event_post_to(loop_handle, AIR_COOKER_EVENTS,
-                                              EVENT_CLOUD_REPLY, &rd,
-                                              sizeof(reply_data_t), 0);
-                        }
+
                     }
                     // ========== pause：暂停烹饪 ==========
                     else if (strcmp(action, "pause") == 0) {
@@ -149,65 +128,25 @@ static void websocket_event_handler(void *handler_args, esp_event_base_t base,
                         esp_event_post_to(loop_handle, AIR_COOKER_EVENTS,
                                           EVENT_CLOUD_CMD, &cmd,
                                           sizeof(cloud_cmd_t), 0);
-                        if (reply_str) {
-                            reply_data_t rd;
-                            snprintf(rd.reply, sizeof(rd.reply), "%s", reply_str);
-                            esp_event_post_to(loop_handle, AIR_COOKER_EVENTS,
-                                              EVENT_CLOUD_REPLY, &rd,
-                                              sizeof(reply_data_t), 0);
-                        }
+
                     }
                     // ========== schedule：预约烹饪 ==========
                     else if (strcmp(action, "schedule") == 0) {
-                        schedule_data_t sched = {
+                        cloud_data_t cook_json = {
                             .temperature = temp_json ? (float)temp_json->valuedouble : 0.0f,
                             .time_s      = time_json ? (int)time_json->valuedouble : 0,
                             .fan_speed   = (fan_speed_t)fan_val,
                             .food_name   = "",
-                            .scheduled_at = "",
                         };
                         if (food_json && cJSON_IsString(food_json)) {
-                            snprintf(sched.food_name, sizeof(sched.food_name),
+                            snprintf(cook_json.food_name, sizeof(cook_json.food_name),
                                      "%s", food_json->valuestring);
                         }
-                        cJSON *sched_at = cJSON_GetObjectItem(root, "scheduled_at");
-                        if (sched_at && cJSON_IsString(sched_at)) {
-                            snprintf(sched.scheduled_at, sizeof(sched.scheduled_at),
-                                     "%s", sched_at->valuestring);
-                        }
                         esp_event_post_to(loop_handle, AIR_COOKER_EVENTS,
-                                          EVENT_CLOUD_SCHEDULE, &sched,
-                                          sizeof(schedule_data_t), 0);
-                        if (reply_str) {
-                            reply_data_t rd;
-                            snprintf(rd.reply, sizeof(rd.reply), "%s", reply_str);
-                            esp_event_post_to(loop_handle, AIR_COOKER_EVENTS,
-                                              EVENT_CLOUD_REPLY, &rd,
-                                              sizeof(reply_data_t), 0);
-                        }
+                                          EVENT_CLOUD_SCHEDULE, &cook_json,
+                                          sizeof(cloud_data_t), 0);
                     }
-                    // ========== welcome：连接欢迎消息 ==========
-                    else if (strcmp(action, "welcome") == 0) {
-                        ESP_LOGI(TAG, "Welcome message received");
-                        if (reply_str) {
-                            reply_data_t rd;
-                            snprintf(rd.reply, sizeof(rd.reply), "%s", reply_str);
-                            esp_event_post_to(loop_handle, AIR_COOKER_EVENTS,
-                                              EVENT_CLOUD_REPLY, &rd,
-                                              sizeof(reply_data_t), 0);
-                        }
-                    }
-                    // ========== chat：闲聊回复 ==========
-                    else if (strcmp(action, "chat") == 0) {
-                        ESP_LOGI(TAG, "Chat reply received");
-                        if (reply_str) {
-                            reply_data_t rd;
-                            snprintf(rd.reply, sizeof(rd.reply), "%s", reply_str);
-                            esp_event_post_to(loop_handle, AIR_COOKER_EVENTS,
-                                              EVENT_CLOUD_REPLY, &rd,
-                                              sizeof(reply_data_t), 0);
-                        }
-                    }
+
                     else {
                         ESP_LOGW(TAG, "Unknown action: %s", action);
                     }

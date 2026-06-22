@@ -52,7 +52,6 @@ static lv_obj_t * scr_cooking = NULL; // 烹饪中界面
 static lv_obj_t * time_label = NULL; // 顶层状态栏的当前时间
 static lv_obj_t * wifi_icon = NULL;
 static lv_obj_t * mic_icon = NULL;
-static lv_obj_t * reply_label = NULL; // 底部回复文字显示
 
 // 详细界面句柄
 static lv_obj_t * Tem_label = NULL; // 详细界面显示当前温度的标签
@@ -262,6 +261,15 @@ static void close_qr_btn_cb(lv_event_t * e)
     
 }
 
+// 烹饪界面 "停止" 按钮回调
+static void cook_stop_btn_cb(lv_event_t * e)
+{
+    if (lv_event_get_code(e) == LV_EVENT_CLICKED) {
+        esp_event_post_to(loop_handle, AIR_COOKER_EVENTS, EVENT_CMD_STOP, NULL, 0, 0);
+        lv_scr_load(scr_detail);
+    }
+}
+
 // 封装一个在屏幕中央弹出二维码界面的函数
 static void show_qrcode_panel(void)
 {
@@ -347,16 +355,6 @@ static lv_obj_t * create_ui_btn(lv_obj_t * parent, const char * txt, int x, int 
 }
 
 
-
-// 烹饪界面 "停止" 按钮回调
-static void cook_stop_btn_cb(lv_event_t * e)
-{
-    if (lv_event_get_code(e) == LV_EVENT_CLICKED) {
-        esp_event_post_to(loop_handle, AIR_COOKER_EVENTS, EVENT_CMD_STOP, NULL, 0, 0);
-        lv_scr_load(scr_detail);
-    }
-}
-
 // ============ 时间刷新定时器回调 ============
 static void time_update_timer_cb(lv_timer_t *timer)
 {
@@ -415,14 +413,7 @@ void ui_start(void)
     lv_obj_set_style_text_font(mic_icon, &my_font, 0);
     lv_obj_align_to(mic_icon, wifi_icon, LV_ALIGN_OUT_LEFT_MID, -10, 0); // 在 Wifi 图标左边 10 像素
 
-    // 底部: 服务器下发的 reply 文本显示
-    reply_label = lv_label_create(top_layer);
-    lv_label_set_text(reply_label, "");
-    lv_obj_set_style_text_color(reply_label, lv_color_hex(0x333333), 0);
-    lv_obj_set_style_text_font(reply_label, &kaiTI, 0);
-    lv_obj_align(reply_label, LV_ALIGN_BOTTOM_MID, 0, -10);
-    lv_label_set_long_mode(reply_label, LV_LABEL_LONG_WRAP);
-    lv_obj_set_width(reply_label, 280);
+
 
     // =========== 3. 绘制主界面 (scr_main) ===========
     // 标题
@@ -769,11 +760,15 @@ void ui_cloud_start(void)
     _lock_release(&lvgl_api_lock);
 }
 
-// ✅ 显示服务器下发的 reply 文本（welcome/chat/各指令的确认语）
-void ui_show_reply(const char *text)
+void ui_cloud_stop(void)
 {
-    if (text == NULL || reply_label == NULL) return;
     _lock_acquire(&lvgl_api_lock);
-    lv_label_set_text(reply_label, text);
+    lv_scr_load(scr_detail);
     _lock_release(&lvgl_api_lock);
+    // 这里可以添加一些清理代码，如果需要的话
+}
+
+const char* ui_get_food_name(void)
+{
+    return current_config.food_name;
 }

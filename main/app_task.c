@@ -20,8 +20,8 @@ ESP_EVENT_DEFINE_BASE(AIR_COOKER_EVENTS);
 /* ================================================================
  *  状态上报任务 — 定时向服务器报告当前温度/状态/剩余时间
  * ================================================================ */
-#define REPORT_ACTIVE_MS    5000      // 烹饪中 5 秒一次
-#define REPORT_IDLE_MS      30000      // 空闲中 30 秒一次
+#define REPORT_ACTIVE_MS    1000      // 烹饪中 1 秒一次
+#define REPORT_IDLE_MS      5000      // 空闲中 5 秒一次
 #define REPORT_TASK_STACK  (6 * 1024)
 #define REPORT_TASK_PRIO    3
 
@@ -93,7 +93,7 @@ void app_event_handler(void* handler_arg, esp_event_base_t base, int32_t id, voi
                 status_report_task, "status_rpt",
                 REPORT_TASK_STACK, NULL, 3, NULL,
                 tskNO_AFFINITY,
-                MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT   // ← 关键
+                MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT   
             );
             break;
         }
@@ -111,9 +111,6 @@ void app_event_handler(void* handler_arg, esp_event_base_t base, int32_t id, voi
         case EVENT_CLOUD_DATA: {
             cloud_data_t *cloud_data = (cloud_data_t *)event_data;
             // 显示 reply 文本（TTS 播报 + LCD 显示）
-            if (cloud_data->reply[0] != '\0') {
-                ui_show_reply(cloud_data->reply);
-            }
             if(aircook_getstate() == cook_stopped) { // 只有在空闲状态才接受云端命令开始烹饪
                 ui_show_cloud_detail(cloud_data); // 先展示云端数据到界面上
                 ESP_LOGI(TAG, "Logic: Cloud command executed! Temp: %.1f C, Time: %ld s, Fan Enum: %d, Food: %s",
@@ -134,36 +131,27 @@ void app_event_handler(void* handler_arg, esp_event_base_t base, int32_t id, voi
                 }
             } else if (*cloud_cmd == cloud_cmd_stop) {
                 aircook_stop();
+                ui_cloud_stop(); // 切回详细界面
                 ESP_LOGI(TAG, "Logic: Cloud command to STOP cooking executed!");
             } else if (*cloud_cmd == cloud_cmd_pause) {
                 // 暂停功能暂不支持，先记录日志
+                aircook_stop(); 
+                ui_cloud_stop(); // 切回详细界面
                 ESP_LOGI(TAG, "Logic: Cloud command to PAUSE cooking received, but PAUSE is not implemented yet.");
             }
             break;
         }
         case EVENT_CLOUD_SCHEDULE: {
-            schedule_data_t *sched = (schedule_data_t *)event_data;
-            ESP_LOGI(TAG, "Logic: Schedule received - Food: %s, Temp: %.1f C, Time: %ld s, At: %s",
-                     sched->food_name, sched->temperature, sched->time_s, sched->scheduled_at);
-            // 保存预约参数到 V220 底层
-            aircook_set_tem(sched->temperature);
-            aircook_set_speed(sched->fan_speed);
-            aircook_set_food_name(sched->food_name);
-            // 更新 UI 显示预约信息
-            cloud_data_t cloud_data;
-            cloud_data.temperature = sched->temperature;
-            cloud_data.time_s = sched->time_s;
-            cloud_data.fan_speed = sched->fan_speed;
-            snprintf(cloud_data.food_name, sizeof(cloud_data.food_name), "%s", sched->food_name);
-            ui_show_cloud_detail(&cloud_data);
-            // 注意：服务器会在预约时间前2秒下发 schedule，ESP32 收到后等待到精确时间再启动
-            break;
+       cloud_data_t *cloud_data = (cloud_data_t *)event_data;
+        ESP_LOGI(TAG, "Logic: Schedule received - Food: %s, Temp: %.1f C, Time: %ld s",
+             cloud_data->food_name, cloud_data->temperature, cloud_data->time_s);
+        if (aircook_getstate() == cook_stopped) {
+        // schedule_data_t 前4字段与 cloud_data_t 内存兼容，直接传给 UI
+        ui_show_cloud_detail((cloud_data_t *)cloud_data);
+        } else {
+            ESP_LOGW(TAG, "Logic: Cannot accept schedule, current state is not stopped!");
         }
-        case EVENT_CLOUD_REPLY: {
-            reply_data_t *rd = (reply_data_t *)event_data;
-            ESP_LOGI(TAG, "Logic: Cloud reply received: %s", rd->reply);
-            ui_show_reply(rd->reply);  // LCD 显示 + 后续可接入 TTS 播报
-            break;
+         break;
         }
 
         default:
@@ -207,7 +195,7 @@ static void status_report_task(void *arg)
         int   time_left    = aircook_gettime();
         float target_temp  = aircook_get_target_temp();
         int   fan_int      = aircook_get_fan_level_int();  // 0=高, 1=中, 2=低
-        const char *food_name = aircook_get_food_name();
+        const char *food_name = ui_get_food_name();
 
         // ── 确定上报 state 字符串 ──
         const char *state_str = "idle";

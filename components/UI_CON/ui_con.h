@@ -13,6 +13,6 @@ void ui_mic_state_update(mic_state_t state);
 void ui_show_cooking_complete(void);
 void ui_show_cloud_detail(cloud_data_t *data);
 void ui_cloud_start(void);
-void ui_show_reply(const char *text);  // 显示服务器下发的 reply 文本（welcome/chat 等）
-
+void ui_cloud_stop(void);
+const char* ui_get_food_name(void);
 #endif // ui_con.h
