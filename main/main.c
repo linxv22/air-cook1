@@ -41,11 +41,11 @@ void app_main(void)
 
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(20000));
-        uint32_t free_internal = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
-        uint32_t free_psram    = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
-        uint32_t largest_internal = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);  // ← 加这行
+        // uint32_t free_internal = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+        // uint32_t free_psram    = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+        // uint32_t largest_internal = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);  // ← 加这行
 
-        ESP_LOGI(TAG, "Main loop running... Internal: %lu Bytes (largest: %lu), PSRAM: %lu Bytes",
-        free_internal, largest_internal, free_psram);
+        // ESP_LOGI(TAG, "Main loop running... Internal: %lu Bytes (largest: %lu), PSRAM: %lu Bytes",
+        // free_internal, largest_internal, free_psram);
     }
 }

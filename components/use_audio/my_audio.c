@@ -31,6 +31,7 @@
 
 #include "esp_log.h"
 #include "esp_heap_caps.h"
+#include "esp_timer.h"
 
 #include "amrnb_encoder.h"
 #include "amrwb_encoder.h"
@@ -51,6 +52,7 @@
 #include "recorder_sr.h"
 #include "tone_stream.h"
 #include "es7210.h"
+#include "raw_opus_encoder.h"
 
 #include "model_path.h"
 
@@ -61,6 +63,29 @@
 #include "esp_websocket_client.h"
 
 #include "freertos/ringbuf.h"
+
+/* ================================================================
+ *  Opus 编码参数
+ * ================================================================ */
+#define OPUS_SAMPLE_RATE    16000
+#define OPUS_CHANNELS       1
+#define OPUS_BITRATE        24000       // 24 kbps（厨房噪音场景）
+#define OPUS_COMPLEXITY     0           // 最低复杂度
+#define OPUS_FRAME_DURATION 20          // ms
+#define OPUS_FRAME_SAMPLES  (OPUS_SAMPLE_RATE * OPUS_FRAME_DURATION / 1000)   // 320
+#define OPUS_PCM_BYTES      (OPUS_FRAME_SAMPLES * sizeof(int16_t))             // 640
+
+/* ================================================================
+ *  WebSocket 统一发送队列
+ * ================================================================ */
+typedef struct {
+    bool   is_binary;
+    char  *payload;
+    size_t payload_len;
+    bool   free_after;
+} ws_send_req_t;
+
+static QueueHandle_t ws_send_queue = NULL;
 
 static RingbufHandle_t g_upload_rb = NULL;
 
@@ -87,17 +112,83 @@ static volatile bool         voice_reading = false;
 // 这个标志位表示当前是否正在录音中，主要用于控制 voice_read_task 的循环
 static volatile bool         stop_sent     = true;
 
+static audio_element_handle_t opus_encoder_el = NULL;
+
 extern esp_websocket_client_handle_t client;
 extern audio_element_handle_t raw_read_el;
 
 
-/* ==================== 生产者：只读录音，不碰网络 ==================== */
+/* ==================== WS 统一发送任务（解决锁竞争） ==================== */
+static void ws_send_task(void *args)
+{
+    ws_send_req_t req;
+    while (true) {
+        if (xQueueReceive(ws_send_queue, &req, portMAX_DELAY) == pdTRUE) {
+            if (req.is_binary) {
+                esp_websocket_client_send_bin(client, req.payload,
+                    req.payload_len, pdMS_TO_TICKS(3000));
+            } else {
+                esp_websocket_client_send_text(client, req.payload,
+                    req.payload_len, pdMS_TO_TICKS(3000));
+            }
+            if (req.free_after) {
+                free(req.payload);
+            }
+        }
+    }
+    vTaskDelete(NULL);
+}
+
+/* ================================================================
+ *  PCM 累积 → Opus 编码 → 写入 RingBuffer
+ * ================================================================ */
+static bool pcm_to_opus_and_send(
+    const uint8_t *pcm_data, size_t pcm_bytes,
+    size_t *pcm_remain, uint8_t *pcm_buf)
+{
+    if (*pcm_remain + pcm_bytes > OPUS_PCM_BYTES * 2) {
+        ESP_LOGE(TAG, "PCM overflow: remain=%d + new=%d", *pcm_remain, pcm_bytes);
+        *pcm_remain = 0;
+        return false;
+    }
+    memcpy(pcm_buf + *pcm_remain, pcm_data, pcm_bytes);
+    *pcm_remain += pcm_bytes;
+
+    while (*pcm_remain >= OPUS_PCM_BYTES) {
+        int encoded = raw_stream_write(opus_encoder_el,
+                                        (char *)pcm_buf, OPUS_PCM_BYTES);
+        if (encoded < 0) {
+            ESP_LOGW(TAG, "Opus encode failed: %d", encoded);
+            memmove(pcm_buf, pcm_buf + OPUS_PCM_BYTES, *pcm_remain - OPUS_PCM_BYTES);
+            *pcm_remain -= OPUS_PCM_BYTES;
+            continue;
+        }
+
+        uint8_t opus_out[256];
+        int opus_len = raw_stream_read(opus_encoder_el,
+                                        (char *)opus_out, sizeof(opus_out));
+        if (opus_len > 0) {
+            xRingbufferSend(g_upload_rb, opus_out, opus_len, pdMS_TO_TICKS(50));
+        }
+
+        memmove(pcm_buf, pcm_buf + OPUS_PCM_BYTES, *pcm_remain - OPUS_PCM_BYTES);
+        *pcm_remain -= OPUS_PCM_BYTES;
+    }
+    return true;
+}
+
+
+/* ==================== 生产者：读 PCM → Opus 编码 → RingBuffer ==================== */
 static void voice_read_task(void *args)
 {
     int msg = 0;
     TickType_t delay = portMAX_DELAY;
     const int buf_len = 2 * 1024;
     uint8_t *voiceData = audio_calloc(1, buf_len);
+
+    uint8_t *pcm_acc_buf = audio_calloc(1, OPUS_PCM_BYTES * 2);
+    size_t   pcm_remain  = 0;
+
     while (true) {
         if (xQueueReceive(rec_q, &msg, delay) == pdTRUE) {
             switch (msg) {
@@ -105,6 +196,7 @@ static void voice_read_task(void *args)
                     ESP_LOGW(TAG, "voice read begin");
                     delay = 0;
                     voice_reading = true;
+                    pcm_remain = 0;
                     break;
                 case REC_STOP:
                 case REC_CANCEL:
@@ -112,39 +204,73 @@ static void voice_read_task(void *args)
                     delay = portMAX_DELAY;
                     voice_reading = false;
                     stop_sent     = false;
+
+                    // 刷新残余 PCM（补零编码最后一帧）
+                    if (pcm_remain > 0) {
+                        memset(pcm_acc_buf + pcm_remain, 0,
+                               OPUS_PCM_BYTES - pcm_remain);
+                        raw_stream_write(opus_encoder_el,
+                                         (char *)pcm_acc_buf, OPUS_PCM_BYTES);
+                        uint8_t last_opus[256];
+                        int last_len = raw_stream_read(opus_encoder_el,
+                                                       (char *)last_opus, sizeof(last_opus));
+                        if (last_len > 0) {
+                            xRingbufferSend(g_upload_rb, last_opus, last_len,
+                                            pdMS_TO_TICKS(50));
+                        }
+                        pcm_remain = 0;
+                    }
                     break;
             }
         }
         if (!voice_reading) continue;
+
         int len = audio_recorder_data_read(recorder, voiceData, buf_len, portMAX_DELAY);
         if (len <= 0) {
             ESP_LOGW(TAG, "recorder read finished %d", len);
             voice_reading = false;
         } else {
-            xRingbufferSend(g_upload_rb, voiceData, len, pdMS_TO_TICKS(50));
+            pcm_to_opus_and_send(voiceData, len, &pcm_remain, pcm_acc_buf);
         }
     }
     audio_free(voiceData);
+    audio_free(pcm_acc_buf);
     vTaskDelete(NULL);
 }
 
-/* ==================== 消费者：只发网络，不碰录音 ==================== */
+/* ==================== 消费者：RingBuffer → ws_send_queue ==================== */
 static void voice_send_task(void *args)
 {
-        while (true) {
+    while (true) {
         size_t len;
-        char *data = (char *)xRingbufferReceive(g_upload_rb, &len, 500 / portTICK_PERIOD_MS);
+        char *data = (char *)xRingbufferReceive(g_upload_rb, &len,
+                                                 500 / portTICK_PERIOD_MS);
 
         if (data == NULL && stop_sent == false) {
-            esp_websocket_client_send_text(client, "STOP", 4, portMAX_DELAY);
+            ws_send_req_t req = {
+                .is_binary   = false,
+                .payload     = "STOP",
+                .payload_len = 4,
+                .free_after  = false,
+            };
+            xQueueSend(ws_send_queue, &req, 0);
             ESP_LOGW(TAG, "voice send stopped");
             stop_sent = true;
         }
         if (data != NULL) {
-        esp_websocket_client_send_bin(client, data, len, portMAX_DELAY);
-        vRingbufferReturnItem(g_upload_rb, data);
+            char *copy = malloc(len);
+            if (copy) {
+                memcpy(copy, data, len);
+                ws_send_req_t req = {
+                    .is_binary   = true,
+                    .payload     = copy,
+                    .payload_len = len,
+                    .free_after  = true,
+                };
+                xQueueSend(ws_send_queue, &req, 0);
+            }
+            vRingbufferReturnItem(g_upload_rb, data);
         }
-        // ESP_LOGI(TAG, "voice send %d bytes", len);
     }
     vTaskDelete(NULL);
 }
@@ -245,7 +371,7 @@ static void start_recorder()
     recorder_sr_cfg_t recorder_sr_cfg = DEFAULT_RECORDER_SR_CFG(audio_sr_input_fmt, "model", AFE_TYPE_SR, AFE_MODE_HIGH_PERF);
     recorder_sr_cfg.afe_cfg->memory_alloc_mode = AFE_MEMORY_ALLOC_MORE_PSRAM;
     recorder_sr_cfg.afe_cfg->wakenet_init = WAKENET_ENABLE;
-    recorder_sr_cfg.afe_cfg->vad_mode = VAD_MODE_4;
+    recorder_sr_cfg.afe_cfg->vad_mode = VAD_MODE_2;
     recorder_sr_cfg.multinet_init = 0;
 #if !defined(CONFIG_SR_MN_CN_NONE)
     recorder_sr_cfg.mn_language = ESP_MN_CHINESE;
@@ -334,6 +460,26 @@ void my_audio_init(void)
     // ----------- 5. 运行流水线 -----------
     // 启动后它会自动停在此处挂起并侦听 raw_read_el，不占用 CPU，等待数据降临！
     audio_pipeline_run(pipeline);
+
+    // ===== Opus 编码器 =====
+    raw_opus_enc_config_t opus_enc_cfg = RAW_OPUS_ENC_CONFIG_DEFAULT();
+    opus_enc_cfg.sample_rate    = OPUS_SAMPLE_RATE;
+    opus_enc_cfg.channel        = OPUS_CHANNELS;
+    opus_enc_cfg.bitrate        = OPUS_BITRATE;
+    opus_enc_cfg.complexity     = OPUS_COMPLEXITY;
+    opus_enc_cfg.frame_duration = OPUS_FRAME_DURATION;
+    opus_encoder_el = raw_opus_encoder_init(&opus_enc_cfg);
+    if (opus_encoder_el == NULL) {
+        ESP_LOGE(TAG, "Opus encoder init failed");
+        return;
+    }
+    ESP_LOGI(TAG, "Opus encoder ready: %dHz, %dch, %dbps",
+             OPUS_SAMPLE_RATE, OPUS_CHANNELS, OPUS_BITRATE);
+
+    // ===== WS 统一发送队列 + 任务 =====
+    ws_send_queue = xQueueCreate(16, sizeof(ws_send_req_t));
+    audio_thread_create(NULL, "ws_send", ws_send_task, NULL,
+                        4 * 1024, 4, true, 0);
     
     rec_q = xQueueCreate(3, sizeof(int));
    
@@ -343,10 +489,10 @@ void my_audio_init(void)
         return;
     }
 
-    es7210_adc_set_volume(GAIN_37_5DB);
+    es7210_adc_set_volume(GAIN_30DB);
     start_recorder();
 
-    audio_thread_create(NULL, "read_task", voice_read_task, NULL, 4 * 1024, 5, true, 0);
+    audio_thread_create(NULL, "read_task", voice_read_task, NULL, 6 * 1024, 5, true, 0);
     audio_thread_create(NULL, "send_task", voice_send_task, NULL, 4 * 1024, 3, true, 1);
 
 
