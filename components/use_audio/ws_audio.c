@@ -18,8 +18,12 @@
 static const char *TAG = "web_socket";
 
 esp_websocket_client_handle_t client;
-audio_element_handle_t opus_read_el;
-audio_element_handle_t raw_read_el;   // PCM playback pipeline input, also used by local prompt audio.
+<<<<<<<<< Temporary merge branch 1
+audio_element_handle_t raw_read_el;
+static audio_element_handle_t opus_decoder_el = NULL;
+=========
+audio_element_handle_t raw_read_el;   // 播放管线入口（my_audio.c 中创建，管线已含 Opus 解码器）
+>>>>>>>>> Temporary merge branch 2
 
 
 
@@ -48,8 +52,21 @@ static void websocket_event_handler(void *handler_args, esp_event_base_t base,
         /* Downlink TTS: [2-byte big-endian length] + [raw Opus frame].
          * The Opus pipeline decodes it to PCM and forwards it to playback. */
         if (data->op_code == 0x2 || data->op_code == 0x0) {
-            if (opus_read_el) {
-                raw_stream_write(opus_read_el, (char *)data->data_ptr,
+<<<<<<<<< Temporary merge branch 1
+            if (opus_decoder_el) {
+                raw_stream_write(opus_decoder_el, (char *)data->data_ptr,
+                                 data->data_len);
+                uint8_t pcm_buf[OPUS_PCM_BYTES];
+                int pcm_len = raw_stream_read(opus_decoder_el,
+                                              (char *)pcm_buf, sizeof(pcm_buf));
+                if (pcm_len > 0) {
+                    raw_stream_write(raw_read_el, (char *)pcm_buf, pcm_len);
+                }
+            } else {
+=========
+            if (raw_read_el) {
+>>>>>>>>> Temporary merge branch 2
+                raw_stream_write(raw_read_el, (char *)data->data_ptr,
                                  data->data_len);
             }
         } else if (data->op_code == 0x08) {
