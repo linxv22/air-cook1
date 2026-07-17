@@ -46,6 +46,7 @@
 #include "filter_resample.h"
 #include "i2s_stream.h"
 #include "mp3_decoder.h"
+#include "raw_opus_decoder.h"
 #include "raw_stream.h"
 #include "recorder_encoder.h"
 #include "recorder_sr.h"
@@ -89,6 +90,26 @@ static volatile bool         stop_sent     = true;
 
 extern esp_websocket_client_handle_t client;
 extern audio_element_handle_t raw_read_el;
+extern audio_element_handle_t opus_read_el;
+
+static void opus_pcm_forward_task(void *args)
+{
+    audio_element_handle_t opus_pcm_out = (audio_element_handle_t)args;
+    const int buf_len = 2 * 1024;
+    uint8_t *pcm = audio_calloc(1, buf_len);
+    if (!pcm) {
+        ESP_LOGE(TAG, "opus pcm forward buffer alloc failed");
+        vTaskDelete(NULL);
+        return;
+    }
+
+    while (true) {
+        int len = raw_stream_read(opus_pcm_out, (char *)pcm, buf_len);
+        if (len > 0 && raw_read_el) {
+            raw_stream_write(raw_read_el, (char *)pcm, len);
+        }
+    }
+}
 
 
 /* ==================== 生产者：只读录音，不碰网络 ==================== */
@@ -288,7 +309,10 @@ void my_audio_init(void)
 {
     log_clear();
     audio_pipeline_handle_t pipeline;
+    audio_pipeline_handle_t opus_pipeline;
     audio_element_handle_t i2s_stream_writer;
+    audio_element_handle_t raw_opus_el;
+    audio_element_handle_t opus_pcm_out_el;
     audio_board_handle_t board_handle = audio_board_init();
 
 
@@ -334,6 +358,42 @@ void my_audio_init(void)
     // 启动后它会自动挂起并侦听 raw_read_el，不占用 CPU，等待数据降临！
     audio_pipeline_run(pipeline);
     ESP_LOGI(TAG, "Playback pipeline ready: raw(PCM 16KHz 1ch) → resample(48KHz 2ch) → I2S");
+
+    audio_pipeline_cfg_t opus_pipeline_cfg = DEFAULT_AUDIO_PIPELINE_CONFIG();
+    opus_pipeline = audio_pipeline_init(&opus_pipeline_cfg);
+
+    raw_stream_cfg_t opus_in_cfg = RAW_STREAM_CFG_DEFAULT();
+    opus_in_cfg.type = AUDIO_STREAM_READER;
+    opus_in_cfg.out_rb_size = 64 * 1024;
+    opus_read_el = raw_stream_init(&opus_in_cfg);
+
+    raw_opus_dec_cfg_t opus_cfg = RAW_OPUS_DEC_CONFIG_DEFAULT();
+    opus_cfg.sample_rate = 16000;
+    opus_cfg.channels = 1;
+    opus_cfg.dec_frame_size = 320;
+    opus_cfg.enable_frame_length_prefix = true;
+    opus_cfg.out_rb_size = 64 * 1024;
+    raw_opus_el = raw_opus_decoder_init(&opus_cfg);
+
+    raw_stream_cfg_t opus_pcm_out_cfg = RAW_STREAM_CFG_DEFAULT();
+    opus_pcm_out_cfg.type = AUDIO_STREAM_WRITER;
+    opus_pcm_out_cfg.out_rb_size = 64 * 1024;
+    opus_pcm_out_el = raw_stream_init(&opus_pcm_out_cfg);
+
+    if (!opus_pipeline || !opus_read_el || !raw_opus_el || !opus_pcm_out_el) {
+        ESP_LOGE(TAG, "opus downlink pipeline init failed");
+        return;
+    }
+
+    audio_pipeline_register(opus_pipeline, opus_read_el, "opus_in");
+    audio_pipeline_register(opus_pipeline, raw_opus_el, "opus_dec");
+    audio_pipeline_register(opus_pipeline, opus_pcm_out_el, "pcm_out");
+
+    const char *opus_link_tag[3] = {"opus_in", "opus_dec", "pcm_out"};
+    audio_pipeline_link(opus_pipeline, &opus_link_tag[0], 3);
+    audio_pipeline_run(opus_pipeline);
+    audio_thread_create(NULL, "opus_pcm", opus_pcm_forward_task, opus_pcm_out_el, 4 * 1024, 4, true, 0);
+    ESP_LOGI(TAG, "Opus downlink pipeline ready: opus -> pcm -> playback");
 
     rec_q = xQueueCreate(3, sizeof(int));
 

@@ -6,6 +6,8 @@
 #include "raw_stream.h"
 #include "audio_element.h"
 #include "esp_audio.h"
+#include "raw_opus_decoder.h"
+#include "freertos/ringbuf.h"
 
 #include "app_events.h"
 #include "esp_heap_caps.h"
@@ -16,7 +18,8 @@
 static const char *TAG = "web_socket";
 
 esp_websocket_client_handle_t client;
-audio_element_handle_t raw_read_el;   // 播放管线入口（my_audio.c 中创建，管线已含 Opus 解码器）
+audio_element_handle_t opus_read_el;
+audio_element_handle_t raw_read_el;   // PCM playback pipeline input, also used by local prompt audio.
 
 
 
@@ -42,12 +45,11 @@ static void websocket_event_handler(void *handler_args, esp_event_base_t base,
         ESP_LOGI(TAG, "WEBSOCKET_EVENT_DISCONNECTED");
         break;
     case WEBSOCKET_EVENT_DATA:
-        /* ========== 二进制消息: PCM 下行 TTS 音频流 ==========
-         * 服务器直接发送原始 PCM (16KHz, 1ch, s16le)
-         * 写入 raw_read_el, 管线自动完成 重采样→I2S播放 */
+        /* Downlink TTS: [2-byte big-endian length] + [raw Opus frame].
+         * The Opus pipeline decodes it to PCM and forwards it to playback. */
         if (data->op_code == 0x2 || data->op_code == 0x0) {
-            if (raw_read_el) {
-                raw_stream_write(raw_read_el, (char *)data->data_ptr,
+            if (opus_read_el) {
+                raw_stream_write(opus_read_el, (char *)data->data_ptr,
                                  data->data_len);
             }
         } else if (data->op_code == 0x08) {
@@ -209,6 +211,7 @@ void websocket_clint_init(void)
     esp_websocket_client_config_t websocket_cfg = {
         .uri  = WEBSOCKET_URI,
         .port = WEBSOCKET_PORT,
+        .buffer_size = 1024 * 8,
         .buffer_size = 1024 * 8,
     };
 
