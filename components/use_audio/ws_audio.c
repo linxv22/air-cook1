@@ -6,6 +6,8 @@
 #include "raw_stream.h"
 #include "audio_element.h"
 #include "esp_audio.h"
+#include "raw_opus_decoder.h"
+#include "freertos/ringbuf.h"
 
 #include "app_events.h"
 #include "esp_heap_caps.h"
@@ -209,6 +211,7 @@ void websocket_clint_init(void)
     esp_websocket_client_config_t websocket_cfg = {
         .uri  = WEBSOCKET_URI,
         .port = WEBSOCKET_PORT,
+        .buffer_size = 1024 * 8,
         .buffer_size = 1024 * 8,
     };
 
