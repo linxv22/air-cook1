@@ -67,6 +67,7 @@ typedef enum {
     EVENT_CLOUD_DATA,    // 云端事件：云端发来了烹饪参数（cook/schedule 指令携带的食谱数据）
     EVENT_CLOUD_CMD,     // 云端事件：云端发来了控制指令（start/stop/pause）
     EVENT_CLOUD_SCHEDULE,// 云端事件：云端发来了预约烹饪指令
+    EVENT_CLOUD_ADJUST,  // 云端事件：云端发来了调整烹饪参数的指令（adjust 指令携带的字段和数值）
     
 } air_cooker_event_id_t;
 
@@ -108,7 +109,11 @@ typedef enum {
     cloud_cmd_pause,     // 云端发来暂停烹饪的命令
 } cloud_cmd_t;
 
-
+//云端参数调整结构体
+typedef struct {
+    char field[8];       // "temp" / "time" / "fan"
+    int  value;          // 新值
+} cloud_adjust_t;
 //设备wifi状态结构体
 typedef enum{
     WIFI_STATE_INIT = 0,       // 初始状态 / 准备中

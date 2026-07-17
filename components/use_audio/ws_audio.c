@@ -146,7 +146,23 @@ static void websocket_event_handler(void *handler_args, esp_event_base_t base,
                                           EVENT_CLOUD_SCHEDULE, &cook_json,
                                           sizeof(cloud_data_t), 0);
                     }
-
+                    // ========== adjust：云端调整参数 ==========
+                    else if (strcmp(action, "adjust") == 0) {
+                       cJSON *field_json = cJSON_GetObjectItem(root, "field");
+                        cJSON *value_json = cJSON_GetObjectItem(root, "value");
+                        if (field_json && value_json &&
+                            cJSON_IsString(field_json) && cJSON_IsNumber(value_json)) {
+                            cloud_adjust_t adj = {
+                                .field = "",
+                                .value = (int)value_json->valuedouble,
+                            };
+                            snprintf(adj.field, sizeof(adj.field),
+                                     "%s", field_json->valuestring);
+                            esp_event_post_to(loop_handle, AIR_COOKER_EVENTS,
+                                              EVENT_CLOUD_ADJUST, &adj,
+                                              sizeof(cloud_adjust_t), 0);
+                        }
+                    }
                     else {
                         ESP_LOGW(TAG, "Unknown action: %s", action);
                     }

@@ -772,3 +772,37 @@ const char* ui_get_food_name(void)
 {
     return current_config.food_name;
 }
+
+void ui_update_param(const char *field, int value)
+{
+    _lock_acquire(&lvgl_api_lock);
+
+    if (strcmp(field, "temp") == 0) {
+        float v = (float)value;
+        if (v < 40) v = 40;
+        if (v > 220) v = 220;
+        current_config.temperature = v;
+        if (label_set_temp)
+            lv_label_set_text_fmt(label_set_temp, "%d °C", (int)v);
+    }
+    else if (strcmp(field, "time") == 0) {
+        uint32_t v = (uint32_t)value;
+        if (v < 60) v = 60;
+        if (v > 3600) v = 3600;
+        current_config.time_s = v;
+        if (label_set_time)
+            lv_label_set_text_fmt(label_set_time, "%d min", (int)v / 60);
+    }
+    else if (strcmp(field, "fan") == 0) {
+        if (value < 0) value = 0;
+        if (value > 2) value = 2;
+        current_config.fan_speed = (fan_speed_t)value;
+        if (label_set_fan) {
+            const char *s = value == fan_high ? "High" :
+                            value == fan_mid  ? "Mid"  : "Low";
+            lv_label_set_text_fmt(label_set_fan, "Fan: %s", s);
+        }
+    }
+
+    _lock_release(&lvgl_api_lock);
+}

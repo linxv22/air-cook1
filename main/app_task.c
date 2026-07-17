@@ -153,7 +153,12 @@ void app_event_handler(void* handler_arg, esp_event_base_t base, int32_t id, voi
         }
          break;
         }
-
+        case EVENT_CLOUD_ADJUST: {
+            cloud_adjust_t *adj = (cloud_adjust_t *)event_data;
+            // 修改 UI 缓存 + 刷新 LCD
+            ui_update_param(adj->field, adj->value);
+            break;
+        }
         default:
             ESP_LOGW(TAG, "Logic: Unhandled event ID: %d", id);
             break;
