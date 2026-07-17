@@ -10,15 +10,13 @@
 #include "app_events.h"
 #include "esp_heap_caps.h"
 
-
-
 #define WEBSOCKET_URI "ws://8.162.21.140"
 #define WEBSOCKET_PORT 8765
 
 static const char *TAG = "web_socket";
 
 esp_websocket_client_handle_t client;
-audio_element_handle_t raw_read_el;
+audio_element_handle_t raw_read_el;   // 播放管线入口（my_audio.c 中创建，管线已含 Opus 解码器）
 
 
 
@@ -44,9 +42,14 @@ static void websocket_event_handler(void *handler_args, esp_event_base_t base,
         ESP_LOGI(TAG, "WEBSOCKET_EVENT_DISCONNECTED");
         break;
     case WEBSOCKET_EVENT_DATA:
-        /* ========== ✨改动：音频走块池，回调非阻塞 ========== */
+        /* ========== 二进制消息: PCM 下行 TTS 音频流 ==========
+         * 服务器直接发送原始 PCM (16KHz, 1ch, s16le)
+         * 写入 raw_read_el, 管线自动完成 重采样→I2S播放 */
         if (data->op_code == 0x2 || data->op_code == 0x0) {
-        raw_stream_write(raw_read_el, data->data_ptr, data->data_len);
+            if (raw_read_el) {
+                raw_stream_write(raw_read_el, (char *)data->data_ptr,
+                                 data->data_len);
+            }
         } else if (data->op_code == 0x08) {
             int code = 0;
             if (data->data_len >= 2) {
@@ -91,8 +94,13 @@ static void websocket_event_handler(void *handler_args, esp_event_base_t base,
                         if (fs >= 0 && fs <= 2) fan_val = fs;
                     }
 
+                    // ========== welcome：欢迎消息（仅播报语音，无操作）==========
+                    if (strcmp(action, "welcome") == 0) {
+                        ESP_LOGI(TAG, "Welcome message received");
+                        // reply 文本由服务器的 TTS→Opus 音频流播放, 此处无需额外操作
+                    }
                     // ========== cook：开始烹饪 ==========
-                    if (strcmp(action, "cook") == 0) {
+                    else if (strcmp(action, "cook") == 0) {
                         cloud_data_t cook_json = {
                             .temperature = temp_json ? (float)temp_json->valuedouble : 0.0f,
                             .time_s      = time_json ? (int)time_json->valuedouble : 0,
@@ -163,6 +171,10 @@ static void websocket_event_handler(void *handler_args, esp_event_base_t base,
                                               sizeof(cloud_adjust_t), 0);
                         }
                     }
+                    // ========== chat：闲聊回复（仅播报语音，无操作）==========
+                    else if (strcmp(action, "chat") == 0) {
+                        ESP_LOGI(TAG, "Chat reply received");
+                    }
                     else {
                         ESP_LOGW(TAG, "Unknown action: %s", action);
                     }
@@ -193,10 +205,11 @@ static void websocket_event_handler(void *handler_args, esp_event_base_t base,
 
 void websocket_clint_init(void)
 {
-    // ── WebSocket 连接 ──
+    // ── WebSocket 连接（Opus 解码器已集成在 my_audio_init 的播放管线中）──
     esp_websocket_client_config_t websocket_cfg = {
         .uri  = WEBSOCKET_URI,
         .port = WEBSOCKET_PORT,
+        .buffer_size = 1024 * 8,
     };
 
     client = esp_websocket_client_init(&websocket_cfg);

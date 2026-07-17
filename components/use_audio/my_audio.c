@@ -290,25 +290,25 @@ void my_audio_init(void)
     audio_pipeline_handle_t pipeline;
     audio_element_handle_t i2s_stream_writer;
     audio_board_handle_t board_handle = audio_board_init();
-    
+
 
     // ----------- 1. 配置硬件为双工模式 (BOTH) -----------
     audio_hal_ctrl_codec(board_handle->audio_hal, AUDIO_HAL_CODEC_MODE_BOTH, AUDIO_HAL_CTRL_START);
     audio_hal_set_volume(board_handle->audio_hal, 100);
-    
-    // ----------- 3. 建立你的独立播放流水线 -----------
+
+    // ----------- 2. 建立播放管线: raw → resample → i2s (PCM直通) -----------
     audio_pipeline_cfg_t pipeline_cfg = DEFAULT_AUDIO_PIPELINE_CONFIG();
     pipeline = audio_pipeline_init(&pipeline_cfg);
 
-    // [第一节管道]：RAW 输入池 (从 WebSocket 接收数据)
+    // [第一节]：RAW 输入池 (从 WebSocket 接收 PCM 数据)
     raw_stream_cfg_t raw_cfg = RAW_STREAM_CFG_DEFAULT();
     raw_cfg.type = AUDIO_STREAM_READER;   // 作为管线的源头
     raw_cfg.out_rb_size = 128 * 1024;      // 开辟 128K 的大胃口防止网络卡顿
     raw_read_el = raw_stream_init(&raw_cfg);
 
-    // [第二节管道]：升频转换器 (16000Hz 转 48000Hz)
+    // [第二节]：升频转换器 (16000Hz 转 48000Hz)
     rsp_filter_cfg_t rsp_cfg = DEFAULT_RESAMPLE_FILTER_CONFIG();
-    rsp_cfg.src_rate = 16000;             // WebSocket 送来的是 16K
+    rsp_cfg.src_rate = 16000;             // 服务器下发的 PCM 是 16KHz
     rsp_cfg.src_ch = 1;
     rsp_cfg.src_bits = 16;
     rsp_cfg.dest_rate = 48000;            // 底层硬件要求 48K（必须和录音保持一致！）
@@ -316,27 +316,27 @@ void my_audio_init(void)
     rsp_cfg.dest_bits = 16;
     audio_element_handle_t filter_el = rsp_filter_init(&rsp_cfg);
 
-    // [第三节管道]：I2S 硬件输出 
+    // [第三节]：I2S 硬件输出
     i2s_stream_cfg_t i2s_cfg = I2S_STREAM_CFG_DEFAULT_WITH_PARA(CODEC_ADC_I2S_PORT, 48000, 32, AUDIO_STREAM_WRITER);
-    i2s_cfg.need_expand = true;           
+    i2s_cfg.need_expand = true;
     i2s_cfg.expand_src_bits = 16;
     i2s_stream_writer = i2s_stream_init(&i2s_cfg);
 
-    // ----------- 4. 注册与链接 -----------
-    audio_pipeline_register(pipeline, raw_read_el, "raw");
-    audio_pipeline_register(pipeline, filter_el, "filter");
+    // ----------- 3. 注册与链接: raw → filter → i2s -----------
+    audio_pipeline_register(pipeline, raw_read_el,  "raw");
+    audio_pipeline_register(pipeline, filter_el,    "filter");
     audio_pipeline_register(pipeline, i2s_stream_writer, "i2s");
 
-    // 把它们串起来：raw -> filter -> i2s
     const char *link_tag[3] = {"raw", "filter", "i2s"};
     audio_pipeline_link(pipeline, &link_tag[0], 3);
 
-    // ----------- 5. 运行流水线 -----------
-    // 启动后它会自动停在此处挂起并侦听 raw_read_el，不占用 CPU，等待数据降临！
+    // ----------- 4. 运行流水线 -----------
+    // 启动后它会自动挂起并侦听 raw_read_el，不占用 CPU，等待数据降临！
     audio_pipeline_run(pipeline);
-    
+    ESP_LOGI(TAG, "Playback pipeline ready: raw(PCM 16KHz 1ch) → resample(48KHz 2ch) → I2S");
+
     rec_q = xQueueCreate(3, sizeof(int));
-   
+
     g_upload_rb = xRingbufferCreate(256 * 1024 * 2, RINGBUF_TYPE_BYTEBUF);
     if (!g_upload_rb) {
         ESP_LOGE(TAG, "Upload ring buffer create failed");
