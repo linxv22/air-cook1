@@ -6,11 +6,15 @@
 #include "raw_stream.h"
 #include "audio_element.h"
 #include "esp_audio.h"
+#include "raw_opus_decoder.h"
+#include "freertos/ringbuf.h"
 
 #include "app_events.h"
 #include "esp_heap_caps.h"
 
-
+#define OPUS_SAMPLE_RATE    16000
+#define OPUS_CHANNELS       1
+#define OPUS_PCM_BYTES      640      // 20ms × 16kHz × 2
 
 #define WEBSOCKET_URI "ws://8.162.21.140"
 #define WEBSOCKET_PORT 8765
@@ -19,6 +23,7 @@ static const char *TAG = "web_socket";
 
 esp_websocket_client_handle_t client;
 audio_element_handle_t raw_read_el;
+static audio_element_handle_t opus_decoder_el = NULL;
 
 
 
@@ -46,7 +51,19 @@ static void websocket_event_handler(void *handler_args, esp_event_base_t base,
     case WEBSOCKET_EVENT_DATA:
         /* ========== ✨改动：音频走块池，回调非阻塞 ========== */
         if (data->op_code == 0x2 || data->op_code == 0x0) {
-        raw_stream_write(raw_read_el, data->data_ptr, data->data_len);
+            if (opus_decoder_el) {
+                raw_stream_write(opus_decoder_el, (char *)data->data_ptr,
+                                 data->data_len);
+                uint8_t pcm_buf[OPUS_PCM_BYTES];
+                int pcm_len = raw_stream_read(opus_decoder_el,
+                                              (char *)pcm_buf, sizeof(pcm_buf));
+                if (pcm_len > 0) {
+                    raw_stream_write(raw_read_el, (char *)pcm_buf, pcm_len);
+                }
+            } else {
+                raw_stream_write(raw_read_el, (char *)data->data_ptr,
+                                 data->data_len);
+            }
         } else if (data->op_code == 0x08) {
             int code = 0;
             if (data->data_len >= 2) {
@@ -193,10 +210,27 @@ static void websocket_event_handler(void *handler_args, esp_event_base_t base,
 
 void websocket_clint_init(void)
 {
+    // ── Opus 解码器（下行 TTS：Opus→PCM）──
+    raw_opus_dec_cfg_t opus_dec_cfg = RAW_OPUS_DEC_CONFIG_DEFAULT();
+    opus_dec_cfg.sample_rate             = OPUS_SAMPLE_RATE;
+    opus_dec_cfg.channels                = OPUS_CHANNELS;
+    opus_dec_cfg.dec_frame_size          = OPUS_PCM_BYTES;
+    opus_dec_cfg.self_delimited = true;          // ★ 自解析不用帧长头
+    opus_decoder_el = raw_opus_decoder_init(&opus_dec_cfg);
+    if (opus_decoder_el) {
+        uint8_t dummy[10] = {0};
+        raw_stream_write(opus_decoder_el, (char *)dummy, sizeof(dummy));
+        ESP_LOGI(TAG, "Opus decoder ready: %dHz, %dch",
+                 OPUS_SAMPLE_RATE, OPUS_CHANNELS);
+    } else {
+        ESP_LOGW(TAG, "Opus decoder init failed, fallback PCM");
+    }
+
     // ── WebSocket 连接 ──
     esp_websocket_client_config_t websocket_cfg = {
         .uri  = WEBSOCKET_URI,
         .port = WEBSOCKET_PORT,
+        .buffer_size = 1024 * 8,
     };
 
     client = esp_websocket_client_init(&websocket_cfg);
