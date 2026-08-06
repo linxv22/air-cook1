@@ -54,6 +54,7 @@ typedef enum {
     EVENT_CMD_FAN_SPEED,        // 指令：设置风扇速度
     EVENT_CMD_STOP,             // 指令：停止工作
     EVENT_CMD_FINISH,           // 指令：烹饪完成了，去显示完成界面吧
+    EVENT_CMD_ERROR,
     //状态更新事件：底层状态机发生了变化，通知 UI 刷新显示
     EVENT_TEMP_UPDATED,         // 状态：当前实际温度更新了 (用来通知屏幕刷新数字)
     EVENT_WIND_UPDATED,         // 状态：当前显示页面更新了

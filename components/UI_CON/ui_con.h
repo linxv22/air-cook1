@@ -14,6 +14,7 @@ void ui_show_cooking_complete(void);
 void ui_show_cloud_detail(cloud_data_t *data);
 void ui_cloud_start(void);
 void ui_cloud_stop(void);
+void ui_error(void);
 const char* ui_get_food_name(void);
 void ui_update_param(const char *field, int value);
 #endif // ui_con.h

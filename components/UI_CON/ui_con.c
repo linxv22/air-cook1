@@ -47,6 +47,7 @@ static lv_obj_t * scr_main = NULL;   // 主界面
 static lv_obj_t * scr_detail = NULL; // 详细控制界面
 static lv_obj_t * scr_complete = NULL; // 烹饪完成界面
 static lv_obj_t * scr_cooking = NULL; // 烹饪中界面
+static lv_obj_t * scr_error = NULL;  // 设备错误界面
 
 // 顶层状态栏控件句柄
 static lv_obj_t * time_label = NULL; // 顶层状态栏的当前时间
@@ -332,6 +333,16 @@ static void complete_back_btn_cb(lv_event_t * e)
     }
 }
 
+// "设备错误"页面 → 返回主页按钮回调
+static void error_back_btn_cb(lv_event_t * e)
+{
+    if (lv_event_get_code(e) == LV_EVENT_CLICKED) {
+        lv_scr_load(scr_main);
+        // 通知底层退出错误状态，回到停止状态（重置状态机）
+        esp_event_post_to(loop_handle, AIR_COOKER_EVENTS, EVENT_CMD_STOP, NULL, 0, 0);
+    }
+}
+
 // 辅助创建按钮包装器
 static lv_obj_t * create_ui_btn(lv_obj_t * parent, const char * txt, int x, int y, btn_id_t btn_id)
 {
@@ -606,6 +617,33 @@ void ui_start(void)
     lv_obj_center(label_home);
 
 
+    // =========== 4.6. 设备错误界面 (scr_error) ===========
+    scr_error = lv_obj_create(NULL);
+    lv_obj_set_style_bg_color(scr_error, lv_color_hex(0xFFFFFF), 0);
+
+    // 错误标题（红色醒目）
+    // ⚠ 注意：LV_SYMBOL_* 是 LVGL 内置字体符号，kaiTI/自定义字体里没有，
+    //   所以警告图标要单独用一个"默认字体"的 label，标题文字再用楷体
+    lv_obj_t * error_warn_icon = lv_label_create(scr_error);
+    lv_label_set_text(error_warn_icon, LV_SYMBOL_WARNING);  // 用默认字体，含符号字形
+    lv_obj_set_style_text_color(error_warn_icon, lv_color_hex(0xFF0000), 0);
+    lv_obj_align(error_warn_icon, LV_ALIGN_CENTER, 0, -85);
+
+    lv_obj_t * error_title = lv_label_create(scr_error);
+    lv_label_set_text(error_title, "设备错误");
+    lv_obj_set_style_text_color(error_title, lv_color_hex(0xFF0000), 0);
+    lv_obj_set_style_text_font(error_title, &kaiTI, 0);
+    lv_obj_align(error_title, LV_ALIGN_CENTER, 0, -60);
+
+    // 错误提示文字
+    lv_obj_t * error_hint = lv_label_create(scr_error);
+    lv_label_set_text(error_hint, "加热已紧急关闭");
+    lv_obj_set_style_text_color(error_hint, lv_color_hex(0x333333), 0);
+    lv_obj_set_style_text_font(error_hint, &kaiTI, 0);
+    lv_obj_align(error_hint, LV_ALIGN_CENTER, 0, -20);
+
+
+
     // =========== 5. 载入默认界面 ===========
     lv_scr_load(scr_main);
 
@@ -694,6 +732,16 @@ void ui_show_cooking_complete(void)
     _lock_acquire(&lvgl_api_lock);
     if (scr_complete != NULL) {
         lv_scr_load(scr_complete);
+    }
+    _lock_release(&lvgl_api_lock);
+}
+
+// ✅ 公开函数：供 app_task.c 在设备发生异常时调用（切换错误界面）
+void ui_error(void)
+{
+    _lock_acquire(&lvgl_api_lock);
+    if (scr_error != NULL) {
+        lv_scr_load(scr_error);
     }
     _lock_release(&lvgl_api_lock);
 }

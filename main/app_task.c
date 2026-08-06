@@ -104,6 +104,12 @@ void app_event_handler(void* handler_arg, esp_event_base_t base, int32_t id, voi
             ESP_LOGI(TAG, "Logic: Wi-Fi disconnected!");
             break;
         }
+        case EVENT_CMD_ERROR:{
+            ESP_LOGE(TAG, "Logic: Safety error detected! Switching to error screen.");
+            // ui_error 内部已加 lvgl_api_lock 锁，安全切换错误界面
+            ui_error();
+            break;
+        }
         case EVENT_AUDIO_CMD: {
             ui_mic_state_update( *(mic_state_t *)event_data);
             break;

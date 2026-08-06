@@ -176,6 +176,8 @@ static void cook_control(void *arg)
         case cook_error:
             V220_HOT_CON(false);
             V220_FAN_CON(false, 0);
+            esp_event_post_to(loop_handle, AIR_COOKER_EVENTS, EVENT_CMD_ERROR,
+                                    NULL, 0, 100/portTICK_PERIOD_MS);
             break;
         default:
             break;
